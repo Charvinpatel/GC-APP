@@ -27,7 +27,7 @@ export const getLast7Days = () => {
   );
 };
 
-export const mapId         = (item) => ({ ...item, id: item._id });
+export const mapId         = (item) => ({ ...item, id: item._id || item.id });
 
 export const mapTrip = (t) => ({
   ...t,

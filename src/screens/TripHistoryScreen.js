@@ -32,9 +32,11 @@ export default function TripHistoryScreen() {
     return customDate;
   }, [filterType, customDate, today, yest]);
 
+  const refreshTrigger = useStore(s => s.refreshTrigger);
   useEffect(() => {
     fetchDriverTrips({ date: activeDate });
   }, [activeDate]);
+  useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
 
   const onRefresh = async () => {
     setRefreshing(true);

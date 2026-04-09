@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  RefreshControl, Dimensions, StatusBar, Animated
+  RefreshControl, Dimensions, StatusBar, Animated, FlatList
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
@@ -48,7 +48,9 @@ function DriverDashboard({ user }) {
     setLoading(false);
   };
 
+  const refreshTrigger = useStore(s => s.refreshTrigger);
   useEffect(() => { load(); }, [selectedMonth]);
+  useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
@@ -136,33 +138,36 @@ function DriverDashboard({ user }) {
 
       <SectionHeader title="RECENT MOVEMENTS" />
 
-      {monthlyTrips.length === 0 ? (
-        <EmptyState message={`No activity for ${dayjs(selectedMonth).format('MMMM')}`} />
-      ) : (
-        <View style={{ gap: spacing.md }}>
-          {monthlyTrips.slice(0, 15).map(t => (
-            <GlassCard key={t.id} style={styles.movementCard}>
-               <View style={styles.moveHeader}>
-                  <Text style={styles.moveDate}>{dayjs(t.date).format('DD MMM')}</Text>
-                  <View style={[styles.statusTag, { backgroundColor: (t.status === 'verified' ? colors.green : colors.yellow) + '15' }]}>
-                     <Text style={[styles.statusTagText, { color: (t.status === 'verified' ? colors.green : colors.yellow) }]}>
-                        {t.status?.toUpperCase() || 'PENDING'}
-                     </Text>
-                  </View>
-               </View>
-               <View style={styles.moveRoute}>
-                  <Text style={styles.routePill}>{t.source || 'MINE'}</Text>
-                  <Ionicons name="arrow-forward" size={14} color={colors.surface[600]} />
-                  <Text style={styles.routePill}>{t.destination || 'SITE'}</Text>
-               </View>
-               <View style={styles.moveFooter}>
-                  <Text style={styles.mMaterial}>{t.soilType?.name || 'MATERIAL'}</Text>
-                  <Text style={styles.mTrips}>{t.trips} ROUNDS</Text>
-               </View>
-            </GlassCard>
-          ))}
-        </View>
-      )}
+      <FlatList
+        data={monthlyTrips.slice(0, 20)}
+        keyExtractor={t => t.id}
+        renderItem={({ item: t }) => (
+          <GlassCard style={styles.movementCard}>
+             <View style={styles.moveHeader}>
+                <Text style={styles.moveDate}>{dayjs(t.date).format('DD MMM')}</Text>
+                <View style={[styles.statusTag, { backgroundColor: (t.status === 'verified' ? colors.green : colors.yellow) + '15' }]}>
+                   <Text style={[styles.statusTagText, { color: (t.status === 'verified' ? colors.green : colors.yellow) }]}>
+                      {t.status?.toUpperCase() || 'PENDING'}
+                   </Text>
+                </View>
+             </View>
+             <View style={styles.moveRoute}>
+                <Text style={styles.routePill}>{t.source || 'MINE'}</Text>
+                <Ionicons name="arrow-forward" size={14} color={colors.surface[600]} />
+                <Text style={styles.routePill}>{t.destination || 'SITE'}</Text>
+             </View>
+             <View style={styles.moveFooter}>
+                <Text style={styles.mMaterial}>{t.soilType?.name || 'MATERIAL'}</Text>
+                <Text style={styles.mTrips}>{t.trips} ROUNDS</Text>
+             </View>
+          </GlassCard>
+        )}
+        ListEmptyComponent={<EmptyState message={`No activity for ${dayjs(selectedMonth).format('MMMM')}`} />}
+        scrollEnabled={false} // Since it's inside a ScrollView
+        initialNumToRender={5}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+      />
     </ScrollView>
   );
 }
@@ -176,9 +181,18 @@ function AdminDashboard({ user, navigation }) {
   } = useStore();
 
   const [refreshing, setRefreshing] = useState(false);
-  const [chartView, setChartView]   = useState('week');
+  const [chartView, setChartView]   = useState('7d');
   const [selectedDate, setSelectedDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [showPicker, setShowPicker] = useState(false);
+  const [perfView, setPerfView] = useState('day');
+
+  const navigateDate = (direction) => {
+    let newDate = dayjs(selectedDate);
+    if (perfView === 'day') newDate = newDate.add(direction, 'day');
+    else if (perfView === 'month') newDate = newDate.add(direction, 'month');
+    else if (perfView === 'year') newDate = newDate.add(direction, 'year');
+    setSelectedDate(newDate.format('YYYY-MM-DD'));
+  };
 
   const today    = useMemo(() => selectedDate, [selectedDate]);
   const last7    = useMemo(() => {
@@ -211,7 +225,9 @@ function AdminDashboard({ user, navigation }) {
     } catch {}
   };
 
+  const refreshTrigger = useStore(s => s.refreshTrigger);
   useEffect(() => { load(); }, []);
+  useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const pendingCount = useMemo(() => driverTrips.filter(dt => dt.status === 'pending').length, [driverTrips]);
@@ -228,7 +244,7 @@ function AdminDashboard({ user, navigation }) {
   }, [trips, diesel, today]);
 
   const monthlyStats = useMemo(() => {
-    const month = dayjs().format('YYYY-MM');
+    const month = dayjs(selectedDate).format('YYYY-MM');
     const t = trips.filter(x  => x.date && x.date.startsWith(month));
     const d = diesel.filter(x => x.date && x.date.startsWith(month));
     return {
@@ -237,10 +253,10 @@ function AdminDashboard({ user, navigation }) {
       diesel:  d.reduce((s, x) => s + (x.amount || 0), 0),
       count:   t.reduce((s, x) => s + x.trips, 0),
     };
-  }, [trips, diesel]);
+  }, [trips, diesel, selectedDate]);
 
   const yearlyStats = useMemo(() => {
-    const year = dayjs().format('YYYY');
+    const year = dayjs(selectedDate).format('YYYY');
     const t = trips.filter(x  => x.date && x.date.startsWith(year));
     const d = diesel.filter(x => x.date && x.date.startsWith(year));
     return {
@@ -249,7 +265,9 @@ function AdminDashboard({ user, navigation }) {
       diesel:  d.reduce((s, x) => s + (x.amount || 0), 0),
       count:   t.reduce((s, x) => s + x.trips, 0),
     };
-  }, [trips, diesel]);
+  }, [trips, diesel, selectedDate]);
+
+  const displayStats = perfView === 'day' ? todayStats : perfView === 'month' ? monthlyStats : yearlyStats;
 
   const chartData = useMemo(() => {
     if (chartView === '30d') {
@@ -274,7 +292,6 @@ function AdminDashboard({ user, navigation }) {
         };
       });
     }
-    // Default 7d
     return last7.map(date => {
       const dt = trips.filter(t => t.date === date);
       const dd = diesel.filter(d => d.date === date);
@@ -288,8 +305,6 @@ function AdminDashboard({ user, navigation }) {
 
   const maxProfit = Math.max(...chartData.map(d => d.profit), 1000);
   const maxDiesel = Math.max(...chartData.map(d => d.diesel), 1000);
-  const maxY = Math.max(maxProfit, maxDiesel) * 1.2;
-
 
   return (
     <ScrollView
@@ -300,15 +315,41 @@ function AdminDashboard({ user, navigation }) {
       <StatusBar barStyle="light-content" />
 
       {/* Admin Header */}
-      <View style={styles.header}>
+      <View style={{ marginBottom: spacing.xl }}>
         <View>
           <Text style={styles.welcomeText}>OVERVIEW FOR</Text>
           <Text style={styles.userName}>ADMIN CONTROL</Text>
+          <Text style={{ fontSize: 11, color: colors.surface[500], fontWeight: '700', marginTop: 2 }}>{dayjs().format('DD MMM YYYY')}</Text>
         </View>
-        <TouchableOpacity style={styles.monthSelector} onPress={() => setShowPicker(true)}>
-           <Ionicons name="calendar-outline" size={18} color={colors.brand[400]} style={{ marginLeft: 8 }} />
-           <Text style={styles.monthLabel}>{dayjs(selectedDate).format('DD MMM YYYY').toUpperCase()}</Text>
-        </TouchableOpacity>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: spacing.md, gap: 12 }}>
+           <View style={[styles.rangeSelect, { marginLeft: 0 }]}>
+              {['day', 'month', 'year'].map(r => (
+                 <TouchableOpacity 
+                   key={r} 
+                   style={[styles.rangeBtn, perfView === r && styles.rangeBtnActive, { paddingVertical: 4, paddingHorizontal: 10 }]} 
+                   onPress={() => setPerfView(r)}
+                 >
+                    <Text style={[styles.rangeText, perfView === r && styles.rangeTextActive, { fontSize: 10 }]}>{r.toUpperCase()}</Text>
+                 </TouchableOpacity>
+              ))}
+           </View>
+           <View style={[styles.monthSelector, { padding: 4, flex: 1, justifyContent: 'space-between' }]}>
+              <TouchableOpacity onPress={() => navigateDate(-1)} style={styles.navBtnSmall}>
+                 <Ionicons name="chevron-back" size={16} color={colors.white} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowPicker(true)} style={{ flex: 1, alignItems: 'center' }}>
+                 <Text style={[styles.monthLabel, { marginHorizontal: 2, fontSize: 11 }]}>
+                    {perfView === 'day' ? dayjs(selectedDate).format('DD MMM YYYY').toUpperCase() :
+                     perfView === 'month' ? dayjs(selectedDate).format('MMM YYYY').toUpperCase() :
+                     dayjs(selectedDate).format('YYYY').toUpperCase()}
+                 </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => navigateDate(1)} style={styles.navBtnSmall}>
+                 <Ionicons name="chevron-forward" size={16} color={colors.white} />
+              </TouchableOpacity>
+           </View>
+        </View>
       </View>
 
       {showPicker && (
@@ -338,41 +379,19 @@ function AdminDashboard({ user, navigation }) {
       )}
 
       <SectionHeader title="FLEET PERFORMANCE" />
+
       <View style={styles.statsRow}>
-        <StatCard label="TODAY PROFIT" value={formatCurrency(todayStats.profit)} icon="cash-outline" color={colors.green} />
-        <StatCard label="ROUND TRIPS" value={String(todayStats.count)} icon="car-sport-outline" color={colors.blue} />
+        <StatCard label={`${perfView.toUpperCase()} PROFIT`} value={formatCurrency(displayStats.profit)} icon="cash-outline" color={colors.green} />
+        <StatCard label="ROUND TRIPS" value={String(displayStats.count)} icon="car-sport-outline" color={colors.blue} />
       </View>
       <View style={[styles.statsRow, { marginTop: spacing.md }]}>
-        <StatCard label="REVENUE" value={formatCurrency(todayStats.revenue)} icon="trending-up" color={colors.brand[400]} />
-        <StatCard label="DIESEL COST" value={formatCurrency(todayStats.diesel)} icon="flame" color={colors.yellow} />
+        <StatCard label={`${perfView === 'day' ? 'REVENUE' : perfView === 'month' ? 'MTD REVENUE' : 'YTD REVENUE'}`} value={formatCurrency(displayStats.revenue)} icon="trending-up" color={colors.brand[400]} />
+        <StatCard label="DIESEL COST" value={formatCurrency(displayStats.diesel)} icon="flame" color={colors.yellow} />
       </View>
 
-      <View style={{ height: spacing.lg }} />
-      <SectionHeader title="MONTHLY PERFORMANCE" />
-      <View style={styles.statsRow}>
-        <StatCard label="MTD PROFIT" value={formatCurrency(monthlyStats.profit)} icon="cash-outline" color={colors.green} />
-        <StatCard label="ROUND TRIPS" value={String(monthlyStats.count)} icon="car-sport-outline" color={colors.blue} />
-      </View>
-      <View style={[styles.statsRow, { marginTop: spacing.md }]}>
-        <StatCard label="MTD REVENUE" value={formatCurrency(monthlyStats.revenue)} icon="trending-up" color={colors.brand[400]} />
-        <StatCard label="DIESEL COST" value={formatCurrency(monthlyStats.diesel)} icon="flame" color={colors.yellow} />
-      </View>
+      <View style={{ height: spacing.xl }} />
 
-      <View style={{ height: spacing.lg }} />
-      <SectionHeader title="YEARLY PERFORMANCE" />
-      <View style={styles.statsRow}>
-        <StatCard label="YTD PROFIT" value={formatCurrency(yearlyStats.profit)} icon="cash-outline" color={colors.green} />
-        <StatCard label="ROUND TRIPS" value={String(yearlyStats.count)} icon="car-sport-outline" color={colors.blue} />
-      </View>
-      <View style={[styles.statsRow, { marginTop: spacing.md }]}>
-        <StatCard label="YTD REVENUE" value={formatCurrency(yearlyStats.revenue)} icon="trending-up" color={colors.brand[400]} />
-        <StatCard label="DIESEL COST" value={formatCurrency(yearlyStats.diesel)} icon="flame" color={colors.yellow} />
-      </View>
-
-      <View style={{ height: spacing.xl * 1.5 }} />
-
-
-      <SectionHeader title="PROFIT VS DIESEL (WEEKLY)" />
+      <SectionHeader title="PROFIT VS DIESEL ANALYSIS" />
       <GlassCard style={styles.chartGlass}>
          <View style={styles.chartHeader}>
             <View style={styles.legendWrap}>
@@ -395,26 +414,23 @@ function AdminDashboard({ user, navigation }) {
          </View>
          
          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-           <View style={[styles.barsContainer, { width: chartData.length * 40 + 40, minWidth: width - spacing.xl * 4 }]}>
-              {chartData.map((d, i) => (
-                <View key={i} style={styles.barItem}>
-                   <View style={styles.barGroup}>
-                      <View style={[styles.bar, { height: (d.profit / maxProfit) * 80, backgroundColor: colors.brand[500] }]}>
-                        {d.profit > 0 && <Text style={styles.barPrice}>{(d.profit / 1000).toFixed(1)}k</Text>}
-                      </View>
-                      <View style={[styles.bar, { height: (d.diesel / maxDiesel) * 80, backgroundColor: colors.yellow }]}>
-                        {d.diesel > 0 && <Text style={styles.barPrice}>{(d.diesel / 1000).toFixed(1)}k</Text>}
-                      </View>
-                   </View>
-                   <Text style={styles.barLabel}>{d.label}</Text>
-                </View>
-              ))}
-           </View>
+            <View style={[styles.barsContainer, { width: (chartData?.length || 0) * 40 + 40, minWidth: width - spacing.xl * 4 }]}>
+               {(chartData || []).map((d, i) => (
+                 <View key={i} style={styles.barItem}>
+                    <View style={styles.barGroup}>
+                       <View style={[styles.bar, { height: (d.profit / maxProfit) * 80, backgroundColor: colors.brand[500] }]}>
+                         {d.profit > 0 && <Text style={styles.barPrice}>{(d.profit / 1000).toFixed(1)}k</Text>}
+                       </View>
+                       <View style={[styles.bar, { height: (d.diesel / maxDiesel) * 80, backgroundColor: colors.yellow }]}>
+                         {d.diesel > 0 && <Text style={styles.barPrice}>{(d.diesel / 1000).toFixed(1)}k</Text>}
+                       </View>
+                    </View>
+                    <Text style={styles.barLabel}>{d.label}</Text>
+                 </View>
+               ))}
+            </View>
          </ScrollView>
       </GlassCard>
-
-
-
     </ScrollView>
   );
 }
@@ -435,6 +451,7 @@ const styles = StyleSheet.create({
 
   monthSelector: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface[900], padding: 6, borderRadius: radius.full, borderWidth: 1, borderColor: colors.surface[800] },
   navBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  navBtnSmall: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   monthLabel: { fontSize: 12, fontWeight: '900', color: colors.brand[400], marginHorizontal: 12 },
 
   dashboardGlass: { padding: spacing['2xl'], marginBottom: spacing.xl },
@@ -490,5 +507,16 @@ const styles = StyleSheet.create({
   bar: { width: 8, borderRadius: 4, minHeight: 4, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 2 },
   barLabel: { fontSize: 9, color: colors.surface[600], marginTop: 10, fontWeight: '700' },
   barPrice: { fontSize: 7, fontWeight: '900', color: colors.white, transform: [{ rotate: '-90deg' }], marginBottom: 10, width: 40, textAlign: 'center' },
+
+  chartTitle: { fontSize: 11, fontWeight: '800', color: colors.surface[400], letterSpacing: 1, marginBottom: spacing.sm },
+  noDataText: { fontSize: 12, color: colors.surface[600], fontWeight: '600', fontStyle: 'italic' },
+  
+  recentActivityCard: { padding: spacing.md, marginBottom: spacing.sm },
+  recentVehicle: { fontSize: 14, fontWeight: '800', color: colors.white },
+  recentDriver: { fontSize: 11, color: colors.surface[500], fontWeight: '600' },
+  recentTrips: { fontSize: 13, fontWeight: '900', color: colors.brand[400] },
+  recentDate: { fontSize: 10, color: colors.surface[600], fontWeight: '700' },
+  recentRoute: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.03)', paddingTop: 8 },
+  recentPill: { fontSize: 10, fontWeight: '700', color: colors.surface[400], backgroundColor: colors.surface[850], paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
 
 });

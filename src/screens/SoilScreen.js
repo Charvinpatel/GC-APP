@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Alert
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
@@ -17,6 +17,16 @@ export default function SoilScreen() {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try { await fetchSoilTypes(); } catch {}
+    setRefreshing(false);
+  };
+
+  const refreshTrigger = useStore(s => s.refreshTrigger);
+  useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
 
   const openAdd = () => { setEditing(null); setForm(EMPTY); setShowModal(true); };
   const openEdit = (s) => {
@@ -102,6 +112,7 @@ export default function SoilScreen() {
         keyExtractor={s => s.id}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand[500]} />}
         ListEmptyComponent={<EmptyState icon="layers-outline" message="No soil types found" />}
         numColumns={1}
         initialNumToRender={10}

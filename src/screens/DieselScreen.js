@@ -52,7 +52,9 @@ export default function DieselScreen() {
     setLoading(false);
   };
 
+  const refreshTrigger = useStore(s => s.refreshTrigger);
   useEffect(() => { load(null); }, []);
+  useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -201,7 +203,6 @@ export default function DieselScreen() {
       
       {/* ── Futuristic Header ──────────────── */}
       <View style={styles.header}>
-        <LinearGradient colors={gradients.surface} style={StyleSheet.absoluteFill} />
         <View style={styles.headerTop}>
           <View>
             <Text style={styles.headerTitle}>DIESEL LOGS</Text>
@@ -326,7 +327,6 @@ export default function DieselScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface[950] },
   header: { 
-    paddingTop: 50, 
     borderBottomWidth: 1, 
     borderBottomColor: colors.surface[800],
     overflow: 'hidden',

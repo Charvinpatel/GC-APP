@@ -1,20 +1,18 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
-  RefreshControl, Alert, ScrollView
+import { Dimensions, View, Text, StyleSheet, FlatList, TouchableOpacity,
+  RefreshControl, Alert, ScrollView, Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
 import { useStore } from '../store/useStore';
-import { Button, Card, Badge, EmptyState, BottomModal, Input, SelectPicker, Loader, Row } from '../components';
-import { colors, spacing, radius } from '../utils/theme';
+import { Button, Card, Badge, EmptyState, BottomModal, Input, SelectPicker, Loader, Row, DatePicker } from '../components';
+import { colors, spacing, radius, shadows } from '../utils/theme';
 import { formatCurrency, formatDateShort, getTripProfit, getTripRevenue } from '../utils/helpers';
 
-const EMPTY_TRIP = {
+const EMPTY_MULTI_TRIP = {
   date: dayjs().format('YYYY-MM-DD'),
-  driverId: '', vehicleId: '', soilTypeId: '',
-  source: '', destination: '',
-  trips: '1', buyPrice: '', sellPrice: '', notes: '',
+  driverId: '', vehicleId: '',
+  routes: [{ id: '1', soilTypeId: '', source: '', destination: '', trips: '1', buyPrice: '', sellPrice: '', notes: '' }],
 };
 
 export default function TripsScreen() {
@@ -28,20 +26,24 @@ export default function TripsScreen() {
   const [refreshing, setRefreshing]   = useState(false);
   const [loading, setLoading]         = useState(true);
   const [showModal, setShowModal]     = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
   const [editing, setEditing]         = useState(null);
-  const [form, setForm]               = useState(EMPTY_TRIP);
+  const [form, setForm]               = useState(EMPTY_MULTI_TRIP);
   const [saving, setSaving]           = useState(false);
   const [page, setPage]               = useState(1);
-  const [filters, setFilters]         = useState({
-    date: '', driverId: '', vehicleId: '', soilTypeId: '',
-  });
+  
+  const [filterType, setFilterType]   = useState('today'); // 'all', 'today', 'custom'
+  const [customDate, setCustomDate]   = useState(dayjs().format('YYYY-MM-DD'));
 
-  const hasFilters = filters.date || filters.driverId || filters.vehicleId || filters.soilTypeId;
+  const activeDate = useMemo(() => {
+    if (filterType === 'today') return dayjs().format('YYYY-MM-DD');
+    if (filterType === 'all') return '';
+    return customDate;
+  }, [filterType, customDate]);
 
-  const load = useCallback(async (p = 1) => {
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
-      await fetchTrips({ page: p, limit: 20, ...filters });
+      await fetchTrips({ page: 1, limit: 1000, date: activeDate });
       await Promise.all([
         drivers.length   === 0 ? fetchDrivers({ limit: 200 })   : Promise.resolve(),
         vehicles.length  === 0 ? fetchVehicles({ limit: 200 })  : Promise.resolve(),
@@ -49,9 +51,11 @@ export default function TripsScreen() {
       ]);
     } catch {}
     setLoading(false);
-  }, [filters]);
+  }, [activeDate]);
 
-  useEffect(() => { load(); }, [filters]);
+  const refreshTrigger = useStore(s => s.refreshTrigger);
+  useEffect(() => { load(); }, [activeDate]);
+  useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -59,59 +63,121 @@ export default function TripsScreen() {
     setRefreshing(false);
   };
 
-  const resetFilters = () => setFilters({ date: '', driverId: '', vehicleId: '', soilTypeId: '' });
-
   const openAdd = () => {
     setEditing(null);
-    setForm(EMPTY_TRIP);
-    setShowModal(true);
-  };
-
-  const openEdit = (trip) => {
-    setEditing(trip);
     setForm({
-      date:       trip.date || dayjs().format('YYYY-MM-DD'),
-      driverId:   trip.driverId || '',
-      vehicleId:  trip.vehicleId || '',
-      soilTypeId: trip.soilTypeId || '',
-      source:     trip.source || '',
-      destination:trip.destination || '',
-      trips:      String(trip.trips || 1),
-      buyPrice:   String(trip.buyPrice || ''),
-      sellPrice:  String(trip.sellPrice || ''),
-      notes:      trip.notes || '',
+      ...EMPTY_MULTI_TRIP,
+      date: dayjs().format('YYYY-MM-DD'),
+      routes: [{ id: Date.now().toString(), soilTypeId: '', source: '', destination: '', trips: '1', buyPrice: '', sellPrice: '', notes: '' }]
     });
     setShowModal(true);
   };
 
-  // Auto-fill buy/sell prices when soil type is selected (matching web)
-  const handleSoilChange = (soilId) => {
+  const openEdit = (group) => {
+    setEditing(group);
+    
+    // We assume the global driver/vehicle is identical across the group, use the first.
+    const firstTrip = group.allTrips[0] || {};
+    
+    setForm({
+      date:       group.date || dayjs().format('YYYY-MM-DD'),
+      driverId:   firstTrip.driverId || '',
+      vehicleId:  firstTrip.vehicleId || '',
+      routes:     group.allTrips.map(trip => ({
+        id:          trip.id,
+        soilTypeId:  trip.soilTypeId || '',
+        source:      trip.source || '',
+        destination: trip.destination || '',
+        trips:       String(trip.trips || 1),
+        buyPrice:    String(trip.buyPrice || ''),
+        sellPrice:   String(trip.sellPrice || ''),
+        notes:       trip.notes || '',
+      }))
+    });
+    setShowModal(true);
+  };
+
+  const handleSoilChange = (soilId, routeId) => {
     const soil = soilTypes.find(s => s.id === soilId);
     setForm(f => ({
       ...f,
-      soilTypeId: soilId,
-      buyPrice:  soil?.buyPrice  ? String(soil.buyPrice)  : f.buyPrice,
-      sellPrice: soil?.sellPrice ? String(soil.sellPrice) : f.sellPrice,
+      routes: f.routes.map(r => r.id === routeId ? {
+        ...r,
+        soilTypeId: soilId,
+        buyPrice:  soil?.buyPrice  ? String(soil.buyPrice)  : r.buyPrice,
+        sellPrice: soil?.sellPrice ? String(soil.sellPrice) : r.sellPrice,
+      } : r)
     }));
   };
 
+  const updateRoute = (routeId, field, value) => {
+    setForm(f => ({
+      ...f,
+      routes: f.routes.map(r => r.id === routeId ? { ...r, [field]: value } : r)
+    }));
+  };
+
+  const addRouteRow = () => {
+    setForm(f => ({
+       ...f,
+       routes: [...f.routes, { id: Date.now().toString(), soilTypeId: '', source: '', destination: '', trips: '1', buyPrice: '', sellPrice: '', notes: '' }]
+    }));
+  };
+
+  const removeRouteRow = (id) => {
+    setForm(f => ({ ...f, routes: f.routes.filter(r => r.id !== id) }));
+  };
+
   const save = async () => {
-    if (!form.driverId || !form.vehicleId || !form.soilTypeId || !form.buyPrice || !form.sellPrice) {
-      Alert.alert('Error', 'Please fill all required fields');
+    if (!form.driverId || !form.vehicleId || !form.date) {
+      Alert.alert('Error', 'Please fill all required global fields');
       return;
     }
+    
+    for (let i = 0; i < form.routes.length; i++) {
+        const r = form.routes[i];
+        if (!r.soilTypeId || !r.source || !r.destination || !r.buyPrice || !r.sellPrice) {
+           Alert.alert('Error', `Please fill all required fields in Route #${i+1}`);
+           return;
+        }
+    }
+
     setSaving(true);
     try {
-      const payload = {
-        ...form,
-        trips:     Number(form.trips)    || 1,
-        buyPrice:  Number(form.buyPrice),
-        sellPrice: Number(form.sellPrice),
-      };
       if (editing) {
-        await updateTrip(editing.id, payload);
+        const originalTripIds = editing.allTrips.map(t => t.id);
+        const currentRouteIds = form.routes.map(r => r.id);
+        
+        const deletedTripIds = originalTripIds.filter(id => !currentRouteIds.includes(id));
+        const promises = [];
+        
+        deletedTripIds.forEach(id => promises.push(deleteTrip(id)));
+        
+        form.routes.forEach(r => {
+          const payload = {
+            date: form.date, driverId: form.driverId, vehicleId: form.vehicleId,
+            source: r.source, destination: r.destination, soilTypeId: r.soilTypeId,
+            trips: Number(r.trips) || 1, buyPrice: Number(r.buyPrice), sellPrice: Number(r.sellPrice),
+            notes: r.notes || ''
+          };
+          if (originalTripIds.includes(r.id)) {
+            promises.push(updateTrip(r.id, payload));
+          } else {
+            promises.push(addTrip(payload));
+          }
+        });
+        await Promise.all(promises);
       } else {
-        await addTrip(payload);
+        const promises = form.routes.map(r => {
+          const payload = {
+            date: form.date, driverId: form.driverId, vehicleId: form.vehicleId,
+            source: r.source, destination: r.destination, soilTypeId: r.soilTypeId,
+            trips: Number(r.trips) || 1, buyPrice: Number(r.buyPrice), sellPrice: Number(r.sellPrice),
+            notes: r.notes || ''
+          };
+          return addTrip(payload);
+        });
+        await Promise.all(promises);
       }
       setShowModal(false);
       load();
@@ -122,10 +188,14 @@ export default function TripsScreen() {
     }
   };
 
-  const confirmDelete = (trip) => {
-    Alert.alert('Delete Trip', 'Are you sure you want to delete this trip?', [
+  const confirmDelete = (group) => {
+    Alert.alert('Delete Trip Group', 'Are you sure you want to delete all trip records for this vehicle on this day?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => deleteTrip(trip.id) },
+      { text: 'Delete All', style: 'destructive', onPress: async () => {
+         const promises = group.allTrips.map(t => deleteTrip(t.id));
+         await Promise.all(promises);
+         load();
+      } },
     ]);
   };
 
@@ -135,49 +205,102 @@ export default function TripsScreen() {
   const sourceOpts  = locations.map(l => ({ label: l.name, value: l.name }));
   const destOpts    = locations.map(l => ({ label: l.name, value: l.name }));
 
-  // Calculated margin preview (matching web)
-  const margin = useMemo(() => {
-    const buy  = Number(form.buyPrice)  || 0;
-    const sell = Number(form.sellPrice) || 0;
-    const t    = Number(form.trips)     || 1;
-    return (sell - buy) * t;
-  }, [form.buyPrice, form.sellPrice, form.trips]);
+  const totalTripsAllVehicles = useMemo(() => trips.reduce((sum, t) => sum + (t.trips || 1), 0), [trips]);
 
-  const renderItem = ({ item: t }) => (
+  const vehicleGroups = useMemo(() => {
+    const groups = {};
+    trips.forEach(t => {
+      const vId = t.vehicleId || 'unknown';
+      const dateKey = t.date || 'unknown_date';
+      const groupKey = `${vId}_${dateKey}`;
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          id: groupKey,
+          allTrips: [],
+          vehicle: t.vehicle,
+          driver: t.driver, // latest driver
+          date: t.date,
+          locations: {},
+          totalTrips: 0,
+          totalRevenue: 0,
+          totalProfit: 0,
+        };
+      }
+      
+      const rev = getTripRevenue(t);
+      const prof = getTripProfit(t);
+      
+      groups[groupKey].allTrips.push(t);
+      const locKey = `${t.source || 'Mine'} → ${t.destination || 'Site'}`;
+      if (!groups[groupKey].locations[locKey]) {
+        groups[groupKey].locations[locKey] = 0;
+      }
+      const numTrips = (t.trips || 1);
+      groups[groupKey].locations[locKey] += numTrips;
+      groups[groupKey].totalTrips += numTrips;
+      groups[groupKey].totalRevenue += rev;
+      groups[groupKey].totalProfit += prof;
+    });
+    return Object.values(groups).sort((a, b) => {
+      if (a.date !== b.date) {
+         return new Date(b.date || 0) - new Date(a.date || 0);
+      }
+      return b.totalTrips - a.totalTrips;
+    });
+  }, [trips]);
+
+  const renderGroup = ({ item: g }) => (
     <Card style={styles.tripCard}>
       <View style={styles.tripHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.vehicleNo}>{t.vehicle?.number || 'Vehicle'}</Text>
-          <Text style={styles.driverName}>{t.driver?.name || 'Driver'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+           <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: colors.surface[800], alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="bus-outline" size={24} color={colors.white} />
+           </View>
+           <View>
+              <Text style={styles.vehicleNo}>{g.vehicle?.number || 'Unknown Vehicle'}</Text>
+              <Text style={styles.driverName}>{g.driver?.name || 'Multiple Drivers'}  •  {formatDateShort(g.date)}</Text>
+           </View>
         </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Text style={styles.profit}>{formatCurrency(getTripProfit(t))}</Text>
-          <Text style={styles.date}>{formatDateShort(t.date)}</Text>
-        </View>
-      </View>
-
-      <View style={styles.tripMeta}>
-        {(t.source || t.destination) ? (
-          <Text style={styles.route}>{t.source || '—'} → {t.destination || '—'}</Text>
-        ) : null}
-        <Text style={styles.metaText}>
-          {t.soilType?.name || 'Soil'} · {t.trips} trips · Buy: {formatCurrency(t.buyPrice)} · Sell: {formatCurrency(t.sellPrice)}
-        </Text>
-      </View>
-
-      <View style={styles.tripActions}>
-        <View style={styles.revenue}>
-          <Text style={styles.revenueLabel}>Revenue</Text>
-          <Text style={styles.revenueValue}>{formatCurrency(getTripRevenue(t))}</Text>
-        </View>
-        <View style={styles.actBtns}>
-          <TouchableOpacity onPress={() => openEdit(t)} style={styles.iconBtn}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <TouchableOpacity onPress={() => openEdit(g)} style={styles.iconBtn}>
             <Ionicons name="pencil-outline" size={16} color={colors.surface[400]} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => confirmDelete(t)} style={[styles.iconBtn, { backgroundColor: colors.red + '18' }]}>
+          <TouchableOpacity onPress={() => confirmDelete(g)} style={[styles.iconBtn, { backgroundColor: colors.red + '18' }]}>
             <Ionicons name="trash-outline" size={16} color={colors.red} />
           </TouchableOpacity>
         </View>
+      </View>
+
+      <View style={{ marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.surface[800] }}>
+         {Object.entries(g.locations).map(([loc, count], idx) => (
+            <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+               <Text style={{ fontSize: 12, color: colors.surface[400], flex: 1 }}>
+                  <Ionicons name="location-outline" size={12} color={colors.surface[500]} />  {loc}
+               </Text>
+               <Text style={{ fontSize: 12, fontWeight: 'bold', color: colors.white }}>{count} Trips</Text>
+            </View>
+         ))}
+      </View>
+
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.surface[800] }}>
+         <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 11, fontWeight: '900', color: colors.surface[500], textTransform: 'uppercase', letterSpacing: 1 }}>Metrics</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 12 }}>
+               <Text style={{ fontSize: 12, fontWeight: '800', color: colors.surface[200] }}>
+                  Rev: <Text style={{ color: colors.brand[400] }}>{formatCurrency(g.totalRevenue)}</Text>
+               </Text>
+               <Text style={{ fontSize: 12, fontWeight: '800', color: colors.surface[200] }}>
+                  Prof: <Text style={{ color: colors.green }}>{formatCurrency(g.totalProfit)}</Text>
+               </Text>
+            </View>
+         </View>
+         <View style={{ alignItems: 'flex-end', paddingLeft: spacing.md, borderLeftWidth: 1, borderLeftColor: colors.surface[800] }}>
+            <Text style={{ fontSize: 11, fontWeight: '900', color: colors.surface[500], textTransform: 'uppercase', letterSpacing: 1 }}>Total</Text>
+            <View style={{ backgroundColor: colors.brand[500] + '20', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8, marginTop: 4 }}>
+               <Text style={{ fontSize: 14, fontWeight: '900', color: colors.brand[400] }}>{g.totalTrips} Trips</Text>
+            </View>
+         </View>
       </View>
     </Card>
   );
@@ -199,88 +322,62 @@ export default function TripsScreen() {
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryVal}>{tripsMeta.total}</Text>
-          <Text style={styles.summaryLabel}>Records</Text>
+          <Text style={styles.summaryVal}>{totalTripsAllVehicles}</Text>
+          <Text style={styles.summaryLabel}>Trips</Text>
         </View>
       </View>
 
-      {/* Filter Toggle Bar */}
-      <View style={styles.filterToggleRow}>
-        <TouchableOpacity
-          style={[styles.filterToggleBtn, showFilters && styles.filterToggleBtnActive]}
-          onPress={() => setShowFilters(v => !v)}
-        >
-          <Ionicons name="options-outline" size={15} color={showFilters ? colors.brand[400] : colors.surface[500]} />
-          <Text style={[styles.filterToggleText, showFilters && { color: colors.brand[400] }]}>
-            Filters {hasFilters ? '●' : ''}
-          </Text>
-        </TouchableOpacity>
-        {hasFilters && (
-          <TouchableOpacity onPress={resetFilters} style={styles.resetBtn}>
-            <Text style={styles.resetBtnText}>Reset</Text>
-          </TouchableOpacity>
+      <View style={styles.headerControls}>
+        <View style={styles.radioGroup}>
+          {[
+            { id: 'all', label: 'All Trips' },
+            { id: 'today', label: 'Today' },
+            { id: 'custom', label: 'Custom Date' }
+          ].map(tab => {
+            const isActive = filterType === tab.id;
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.radioTab, isActive && styles.radioTabActive]}
+                onPress={() => setFilterType(tab.id)}
+              >
+                <Text style={[styles.radioTabText, isActive && styles.radioTabActiveText]}>{tab.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {filterType === 'custom' && (
+          <View style={styles.dateSelector}>
+            <TouchableOpacity onPress={() => setCustomDate(dayjs(customDate).subtract(1, 'day').format('YYYY-MM-DD'))} style={styles.dateBtn}>
+              <Ionicons name="chevron-back" size={20} color={colors.white} />
+            </TouchableOpacity>
+            
+            <View style={{ flex: 1, marginHorizontal: spacing.md, marginTop: spacing.md }}>
+               <DatePicker 
+                  date={customDate} 
+                  onConfirm={(d) => setCustomDate(dayjs(d).format('YYYY-MM-DD'))} 
+               />
+            </View>
+
+            <TouchableOpacity onPress={() => setCustomDate(dayjs(customDate).add(1, 'day').format('YYYY-MM-DD'))} style={styles.dateBtn}>
+              <Ionicons name="chevron-forward" size={20} color={colors.white} />
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
-      {/* Filter Pickers — collapsible */}
-      {showFilters && (
-        <View style={styles.filterPanel}>
-          <SelectPicker
-            label="Driver" value={filters.driverId}
-            options={[{ label: 'All Drivers', value: '' }, ...driverOpts]}
-            onChange={v => setFilters(f => ({ ...f, driverId: v }))}
-            placeholder="All Drivers"
-          />
-          <SelectPicker
-            label="Vehicle" value={filters.vehicleId}
-            options={[{ label: 'All Vehicles', value: '' }, ...vehicleOpts]}
-            onChange={v => setFilters(f => ({ ...f, vehicleId: v }))}
-            placeholder="All Vehicles"
-          />
-          <SelectPicker
-            label="Soil Type" value={filters.soilTypeId}
-            options={[{ label: 'All Types', value: '' }, ...soilOpts]}
-            onChange={v => setFilters(f => ({ ...f, soilTypeId: v }))}
-            placeholder="All Types"
-          />
-          <Input
-            label="Date (YYYY-MM-DD)"
-            icon="calendar-outline"
-            value={filters.date}
-            onChangeText={v => setFilters(f => ({ ...f, date: v }))}
-            placeholder="e.g. 2024-04-01"
-          />
-        </View>
-      )}
-
       <FlatList
-        data={trips}
-        keyExtractor={t => t.id}
-        renderItem={renderItem}
+        data={vehicleGroups}
+        keyExtractor={g => g.id}
+        renderItem={renderGroup}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand[500]} />}
         ListEmptyComponent={<EmptyState icon="car-outline" message="No trips found" />}
-        ListFooterComponent={
-          tripsMeta.totalPages > 1 ? (
-            <View style={styles.paginationRow}>
-              <TouchableOpacity
-                style={[styles.pageBtn, page === 1 && { opacity: 0.3 }]}
-                onPress={() => { if (page > 1) { setPage(p => p - 1); load(page - 1); } }}
-                disabled={page === 1}
-              >
-                <Ionicons name="chevron-back" size={18} color={colors.white} />
-              </TouchableOpacity>
-              <Text style={styles.pageText}>Page {page} / {tripsMeta.totalPages}</Text>
-              <TouchableOpacity
-                style={[styles.pageBtn, page >= tripsMeta.totalPages && { opacity: 0.3 }]}
-                onPress={() => { if (page < tripsMeta.totalPages) { setPage(p => p + 1); load(page + 1); } }}
-                disabled={page >= tripsMeta.totalPages}
-              >
-                <Ionicons name="chevron-forward" size={18} color={colors.white} />
-              </TouchableOpacity>
-            </View>
-          ) : null
-        }
+        initialNumToRender={5}
+        maxToRenderPerBatch={5}
+        windowSize={5}
+        removeClippedSubviews={Platform.OS === 'android'}
       />
 
       {/* FAB */}
@@ -288,61 +385,81 @@ export default function TripsScreen() {
         <Ionicons name="add" size={28} color={colors.white} />
       </TouchableOpacity>
 
-      {/* Add/Edit Modal */}
-      <BottomModal visible={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Trip' : 'Add Trip'}>
-        <SelectPicker label="Driver *"       value={form.driverId}   options={driverOpts}  onChange={v => setForm(f => ({ ...f, driverId: v }))}   placeholder="Select driver..." />
-        <SelectPicker label="Vehicle *"      value={form.vehicleId}  options={vehicleOpts} onChange={v => setForm(f => ({ ...f, vehicleId: v }))}  placeholder="Select vehicle..." />
-        <SelectPicker label="Material Type *" value={form.soilTypeId} options={soilOpts}    onChange={handleSoilChange}                              placeholder="Select material..." />
+      {/* Add/Edit Trips Modal */}
+      <BottomModal visible={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Trip Logs' : 'Add Multiple Trip Logs'}>
+        <View>
+           <Text style={[styles.sectionTitle, { marginTop: spacing.sm }]}>GLOBAL DETAILS</Text>
+           
+           <View style={{ flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md }}>
+             <View style={{ flex: 1 }}>
+               <SelectPicker label="Driver *" value={form.driverId} options={driverOpts} onChange={v => setForm(f => ({ ...f, driverId: v }))} placeholder="Select driver" />
+             </View>
+             <View style={{ flex: 1 }}>
+               <SelectPicker label="Vehicle *" value={form.vehicleId} options={vehicleOpts} onChange={v => setForm(f => ({ ...f, vehicleId: v }))} placeholder="Select vehicle" />
+             </View>
+           </View>
+           
+           <View style={{ marginBottom: spacing.md }}>
+             <DatePicker label="Date *" date={form.date} onConfirm={(d) => setForm(f => ({ ...f, date: dayjs(d).format('YYYY-MM-DD') }))} />
+           </View>
 
-        <Input label="Date" icon="calendar-outline" value={form.date} onChangeText={v => setForm(f => ({ ...f, date: v }))} placeholder="YYYY-MM-DD" />
+           <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.surface[800], paddingTop: spacing.md }}>
+             <Text style={styles.sectionTitle}>ROUTE ENTRIES</Text>
+             
+             {form.routes.map((r, index) => {
+               const rMargin = (Number(r.sellPrice) - Number(r.buyPrice)) * Number(r.trips);
+               return (
+                 <View key={r.id} style={styles.routeBlock}>
+                    <View style={styles.routeHeader}>
+                       <Text style={styles.routeTitle}>ROUTE #{index + 1}</Text>
+                       {form.routes.length > 1 && (
+                         <TouchableOpacity onPress={() => removeRouteRow(r.id)} style={{ padding: 4 }}>
+                            <Ionicons name="trash-outline" size={16} color={colors.red} />
+                         </TouchableOpacity>
+                       )}
+                    </View>
+                    
+                    <SelectPicker label="Soil Type *" value={r.soilTypeId} options={soilOpts} onChange={v => handleSoilChange(v, r.id)} placeholder="Select material..." />
+                    
+                    <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                      <View style={{ flex: 1 }}>
+                        <SelectPicker label="Source *" value={r.source} options={sourceOpts} onChange={v => updateRoute(r.id, 'source', v)} placeholder="Source" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <SelectPicker label="Destination *" value={r.destination} options={destOpts} onChange={v => updateRoute(r.id, 'destination', v)} placeholder="Destination" />
+                      </View>
+                    </View>
 
-        {/* Source / Destination from locations */}
-        <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <View style={{ flex: 1 }}>
-            <SelectPicker
-              label="Source"
-              value={form.source}
-              options={sourceOpts}
-              onChange={v => setForm(f => ({ ...f, source: v }))}
-              placeholder="Select Source"
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <SelectPicker
-              label="Destination"
-              value={form.destination}
-              options={destOpts}
-              onChange={v => setForm(f => ({ ...f, destination: v }))}
-              placeholder="Select Destination"
-            />
-          </View>
+                    <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                      <View style={{ flex: 1 }}>
+                        <Input label="Trips *" keyboardType="numeric" value={r.trips} onChangeText={v => updateRoute(r.id, 'trips', v)} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Input label="Buy Price *" icon="arrow-down-circle-outline" keyboardType="numeric" value={r.buyPrice} onChangeText={v => updateRoute(r.id, 'buyPrice', v)} placeholder="₹0" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Input label="Sell Price *" icon="arrow-up-circle-outline" keyboardType="numeric" value={r.sellPrice} onChangeText={v => updateRoute(r.id, 'sellPrice', v)} placeholder="₹0" />
+                      </View>
+                    </View>
+
+                    {Number(r.trips) > 0 && Number(r.buyPrice) > 0 && (
+                      <View style={[styles.marginPreview, { borderColor: rMargin >= 0 ? colors.green + '40' : colors.red + '40', backgroundColor: rMargin >= 0 ? colors.green + '10' : colors.red + '10' }]}>
+                        <Text style={styles.marginLabel}>Margin</Text>
+                        <Text style={[styles.marginValue, { color: rMargin >= 0 ? colors.green : colors.red }]}>{formatCurrency(rMargin || 0)}</Text>
+                      </View>
+                    )}
+                 </View>
+               );
+             })}
+           </View>
+
+           <TouchableOpacity style={styles.addRouteBtn} onPress={addRouteRow}>
+              <Ionicons name="add-circle-outline" size={20} color={colors.brand[400]} />
+              <Text style={styles.addRouteText}>ADD ANOTHER ROUTE</Text>
+           </TouchableOpacity>
+
+           <Button title={editing ? 'Update Trip Data' : 'Save All Trips to Log'} onPress={save} loading={saving} icon="checkmark-circle-outline" style={{ marginTop: spacing.md }} />
         </View>
-
-        <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <View style={{ flex: 1 }}>
-            <Input label="Trips *"      keyboardType="numeric" value={form.trips}     onChangeText={v => setForm(f => ({ ...f, trips: v }))} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Input label="Buy Price *"  icon="arrow-down-circle-outline" keyboardType="numeric" value={form.buyPrice}  onChangeText={v => setForm(f => ({ ...f, buyPrice: v }))}  placeholder="₹0" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Input label="Sell Price *" icon="arrow-up-circle-outline"   keyboardType="numeric" value={form.sellPrice} onChangeText={v => setForm(f => ({ ...f, sellPrice: v }))} placeholder="₹0" />
-          </View>
-        </View>
-
-        {/* Margin Preview */}
-        {Number(form.trips) > 0 && Number(form.buyPrice) > 0 && (
-          <View style={[styles.marginPreview, { borderColor: margin >= 0 ? colors.green + '40' : colors.red + '40', backgroundColor: margin >= 0 ? colors.green + '10' : colors.red + '10' }]}>
-            <Text style={styles.marginLabel}>Calculated Trip Margin</Text>
-            <Text style={[styles.marginValue, { color: margin >= 0 ? colors.green : colors.red }]}>
-              {formatCurrency(margin)}
-            </Text>
-          </View>
-        )}
-
-        <Input label="Notes" value={form.notes} onChangeText={v => setForm(f => ({ ...f, notes: v }))} placeholder="Optional notes..." multiline />
-
-        <Button title={editing ? 'Update Trip' : 'Add Trip'} onPress={save} loading={saving} icon="checkmark-circle-outline" />
       </BottomModal>
     </View>
   );
@@ -361,14 +478,15 @@ const styles = StyleSheet.create({
   summaryVal:     { fontSize: 16, fontWeight: '700', color: colors.white },
   summaryLabel:   { fontSize: 11, color: colors.surface[500], marginTop: 2 },
 
-  filterToggleRow:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.surface[800] },
-  filterToggleBtn:    { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4, paddingHorizontal: 10, borderRadius: radius.full, borderWidth: 1, borderColor: colors.surface[800] },
-  filterToggleBtnActive: { borderColor: colors.brand[500] + '60', backgroundColor: colors.brand[500] + '12' },
-  filterToggleText:   { fontSize: 11, fontWeight: '700', color: colors.surface[500] },
-  resetBtn:           { marginLeft: 'auto', paddingHorizontal: 10, paddingVertical: 4 },
-  resetBtnText:       { fontSize: 11, fontWeight: '700', color: colors.red },
-
-  filterPanel:  { backgroundColor: colors.surface[900], padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.surface[800] },
+  headerControls: { padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.surface[800], backgroundColor: colors.surface[900] },
+  radioGroup: { flexDirection: 'row', backgroundColor: colors.surface[850], borderRadius: radius.lg, padding: 4 },
+  radioTab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: radius.md },
+  radioTabActive: { backgroundColor: colors.surface[700], ...shadows.sm },
+  radioTabText: { fontSize: 13, fontWeight: '700', color: colors.surface[400] },
+  radioTabActiveText: { color: colors.white },
+  
+  dateSelector: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.md },
+  dateBtn: { width: 44, height: 44, borderRadius: radius.lg, backgroundColor: colors.surface[800], alignItems: 'center', justifyContent: 'center' },
 
   list: { padding: spacing.lg, paddingBottom: 100 },
   tripCard: {},
@@ -393,7 +511,17 @@ const styles = StyleSheet.create({
 
   marginPreview: { padding: spacing.md, borderRadius: radius.xl, borderWidth: 1, marginBottom: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   marginLabel:   { fontSize: 11, fontWeight: '700', color: colors.surface[400], textTransform: 'uppercase', letterSpacing: 0.5 },
-  marginValue:   { fontSize: 18, fontWeight: '900' },
+  marginValue:      { fontSize: 18, fontWeight: '900' },
+  routeText:        { fontSize: 11, fontWeight: '700', color: colors.white, textTransform: 'uppercase' },
+  routeArrow:       { fontSize: 11, fontWeight: '900', color: colors.surface[600] },
+  emptyCard:        { padding: 56, alignItems: 'center', borderRadius: radius.xl, borderWidth: 2, borderColor: colors.surface[800], borderStyle: 'dashed', marginTop: 20 },
+  emptyText:        { fontSize: 11, fontWeight: '900', color: colors.surface[500], textTransform: 'uppercase', letterSpacing: 2, textAlign: 'center', lineHeight: 20, marginTop: 12 },
+  sectionTitle:     { fontSize: 10, fontWeight: '900', color: colors.surface[500], letterSpacing: 2, marginBottom: spacing.md },
+  routeBlock:       { backgroundColor: colors.surface[900], padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.surface[800], marginBottom: spacing.md },
+  routeHeader:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
+  routeTitle:       { fontSize: 11, fontWeight: '800', color: colors.surface[400] },
+  addRouteBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.brand[500] + '50', backgroundColor: colors.brand[500] + '10', marginBottom: spacing.sm },
+  addRouteText:     { fontSize: 12, fontWeight: '800', color: colors.brand[400], letterSpacing: 1 },
 
   fab: {
     position: 'absolute', bottom: 24, right: 20,

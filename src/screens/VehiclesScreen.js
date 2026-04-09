@@ -33,7 +33,9 @@ export default function VehiclesScreen() {
     try { await fetchVehicles({ limit: 100 }); } catch {}
     setLoading(false);
   };
+  const refreshTrigger = useStore(s => s.refreshTrigger);
   useEffect(() => { load(); }, []);
+  useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const openAdd = () => { setEditing(null); setForm(EMPTY); setShowModal(true); };

@@ -45,7 +45,9 @@ export default function BillsScreen() {
     setLoading(false);
   };
 
+  const refreshTrigger = useStore(s => s.refreshTrigger);
   useEffect(() => { load(); }, []);
+  useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   /* ── Stats ── */
@@ -66,6 +68,12 @@ export default function BillsScreen() {
     });
     return Object.values(map).sort((a, b) => b.total - a.total);
   }, [trips]);
+
+  const filteredDestSummaries = useMemo(() => {
+    if (!search) return destSummaries;
+    const q = search.toLowerCase();
+    return destSummaries.filter(d => d.name.toLowerCase().includes(q));
+  }, [destSummaries, search]);
 
   const filteredBills = useMemo(() => {
     return bills.filter(b => {
@@ -221,7 +229,7 @@ export default function BillsScreen() {
         updateCellsBatchingPeriod={50}
 
         ListHeaderComponent={() =>
-          destSummaries.length > 0 && statusTab === 'all' ? (
+          filteredDestSummaries.length > 0 && statusTab === 'all' ? (
             <View style={styles.destList}>
               {/* Destinations section */}
               <View style={styles.sectionHeader}>
@@ -229,7 +237,7 @@ export default function BillsScreen() {
                 <Text style={styles.sectionTitle}>DESTINATIONS</Text>
               </View>
               <View style={styles.destGrid}>
-                {destSummaries.map((dest, idx) => (
+                {filteredDestSummaries.map((dest, idx) => (
                   <TouchableOpacity key={idx} style={styles.destCard} onPress={() => openCreateModal(dest.name)}>
                     {/* Top accent bar */}
                     <View style={styles.destCardAccentBar} />

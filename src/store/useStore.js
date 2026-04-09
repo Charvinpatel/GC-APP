@@ -30,19 +30,25 @@ export const useStore = create((set, get) => ({
   dieselMeta:   { total: 0, page: 1, totalPages: 1 },
   locationsMeta:{ total: 0, page: 1, totalPages: 1 },
   tripsSummary: { revenue: 0, profit: 0, trips: 0 },
+  refreshTrigger: 0,
+
+  triggerRefresh: () => set(state => ({ refreshTrigger: state.refreshTrigger + 1 })),
 
   // ── Auth ────────────────────────────────────────────────────────────────────
   checkAuth: async () => {
     const token = await getToken();
     if (!token) {
-      set({ isAuthenticated: false, user: null, loading: false });
+      set({ isAuthenticated: false, user: null, loading: false, hasInitialized: false });
       return;
     }
     try {
       set({ loading: true });
-      const res = await api.auth.me();
+      // Parallelize identity check and common data init
+      const [res] = await Promise.all([
+        api.auth.me(),
+        get().init()
+      ]);
       set({ isAuthenticated: true, user: res.user, loading: false });
-      get().init();
     } catch (err) {
       if (err.status === 401 || err.status === 403) {
         await clearToken();
@@ -60,6 +66,17 @@ export const useStore = create((set, get) => ({
     return res;
   },
 
+  register: async (data) => {
+    const res = await api.auth.register(data);
+    // Auto-login after registration
+    if (res.token) {
+      await setToken(res.token);
+      set({ isAuthenticated: true, user: res.user, error: null });
+      await get().init();
+    }
+    return res;
+  },
+
   logout: async () => {
     await clearToken();
     set({
@@ -73,24 +90,24 @@ export const useStore = create((set, get) => ({
   init: async () => {
     if (get().hasInitialized) return;
     try {
-      const { user } = get();
-      const isDriver = user?.role === 'driver';
-      const upadFilters = isDriver && user.driverProfile ? { driverId: user.driverProfile } : {};
-
-      const [soils, locs, ups] = await Promise.all([
+      // Common resources + Dashboard (pre-emptive)
+      const [soils, locs, dash] = await Promise.all([
         api.soilTypes.getAll(),
-        api.locations.getAll({ limit: 100 }),
-        api.upad.getAll(upadFilters),
+        api.locations.getAll({ limit: 500 }),
+        api.dashboard.get(),
       ]);
 
       set({
         soilTypes: soils.map(mapId),
         locations: (locs.data || locs).map(mapId),
         locationsMeta: { total: locs.total || locs.length, page: locs.page || 1, totalPages: locs.totalPages || 1 },
-        upad: (ups.data || ups).map(mapId),
+        // Pre-set dashboard stats if admin
+        tripsSummary: dash?.stats || { revenue: 0, profit: 0, trips: 0 },
         hasInitialized: true,
       });
-    } catch {}
+    } catch (e) {
+      console.error('Init failure:', e);
+    }
   },
 
   // ── Drivers ─────────────────────────────────────────────────────────────────
@@ -280,5 +297,10 @@ export const useStore = create((set, get) => ({
   deleteLocation: async (id) => {
     await api.locations.remove(id);
     set(s => ({ locations: s.locations.filter(l => l.id !== id) }));
+  },
+  updateLocation: async (id, data) => {
+    const res = await api.locations.update(id, data);
+    set(s => ({ locations: s.locations.map(l => l.id === id ? mapId(res) : l) }));
+    return res;
   },
 }));

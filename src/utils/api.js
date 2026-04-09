@@ -161,6 +161,7 @@ export const bills = {
 export const locations = {
   getAll: (filters = {}) => get('/locations?' + new URLSearchParams(filters)),
   create: (data) => post('/locations', data),
+  update: (id, data) => put(`/location/${id}`, data),
   remove: (id) => del(`/locations/${id}`),
 };
 

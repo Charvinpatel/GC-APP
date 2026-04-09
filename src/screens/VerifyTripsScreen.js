@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  RefreshControl, ScrollView, Dimensions, StatusBar, Animated
+  RefreshControl, ScrollView, Dimensions, StatusBar, Animated, Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
@@ -69,7 +69,9 @@ export default function VerifyTripsScreen() {
     setLoading(false);
   }, [fetchDriverTrips, fetchDrivers, fetchVehicles, fetchSoilTypes, fetchLocations, fetchTrips]);
 
+  const refreshTrigger = useStore(s => s.refreshTrigger);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -195,7 +197,6 @@ export default function VerifyTripsScreen() {
       
       {/* ── Futuristic Header ──────────────── */}
       <View style={styles.header}>
-        <LinearGradient colors={gradients.surface} style={StyleSheet.absoluteFill} />
         <View style={styles.headerTop}>
           <View>
             <Text style={styles.headerTitle}>TODAY TRIPS</Text>
@@ -205,10 +206,7 @@ export default function VerifyTripsScreen() {
             style={[styles.filterPill, hasFilters && styles.filterPillActive]} 
             onPress={() => setShowFilterModal(true)}
           >
-            <Ionicons name="filter-circle-outline" size={20} color={hasFilters ? colors.brand[400] : colors.surface[400]} />
-            <Text style={[styles.filterPillText, hasFilters && { color: colors.brand[400] }]}>
-              {hasFilters ? 'Filters Active' : 'Filter'}
-            </Text>
+            <Ionicons name="filter-circle-outline" size={22} color={hasFilters ? colors.brand[400] : colors.surface[400]} />
           </TouchableOpacity>
         </View>
 
@@ -225,6 +223,10 @@ export default function VerifyTripsScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand[500]} />}
         ListEmptyComponent={<EmptyState icon="shield-checkmark-outline" message="No verification records found" />}
+        initialNumToRender={5}
+        maxToRenderPerBatch={5}
+        windowSize={5}
+        removeClippedSubviews={Platform.OS === 'android'}
         renderItem={({ item: [date, dayTrips] }) => (
           <View style={styles.dayGroup}>
             <View style={styles.dayHeader}>
@@ -419,7 +421,6 @@ export default function VerifyTripsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface[950] },
   header: { 
-    paddingTop: 50, 
     borderBottomWidth: 1, 
     borderBottomColor: colors.surface[800],
     overflow: 'hidden',
@@ -429,19 +430,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between', 
     alignItems: 'center', 
     paddingHorizontal: spacing.xl,
-    marginBottom: spacing.lg,
+    paddingTop: spacing.xs,
+    marginBottom: spacing.md,
   },
   headerTitle: { fontSize: 24, fontWeight: '900', color: colors.white, letterSpacing: -1 },
   headerSub: { fontSize: 10, fontWeight: '800', color: colors.brand[400], letterSpacing: 1.5 },
 
   filterPill: { 
-    flexDirection: 'row', 
+    width: 44,
+    height: 44,
     alignItems: 'center', 
-    gap: 6, 
+    justifyContent: 'center',
     backgroundColor: colors.surface[900], 
-    paddingHorizontal: 12, 
-    paddingVertical: 8, 
-    borderRadius: radius.full,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: colors.surface[800],
   },

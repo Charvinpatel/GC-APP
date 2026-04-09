@@ -57,7 +57,9 @@ export default function ReportsScreen() {
     setLoading(false);
   };
 
+  const refreshTrigger = useStore(s => s.refreshTrigger);
   useEffect(() => { setLoading(true); load(); }, [dateRange.from, dateRange.to]);
+  useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   // ── Computed ──────────────────────────────────────────────────────────────
@@ -130,7 +132,6 @@ export default function ReportsScreen() {
       
       {/* ── Header Area ─────────────────────────── */}
       <View style={styles.header}>
-        <LinearGradient colors={gradients.surface} style={StyleSheet.absoluteFill} />
         <View style={styles.headerTop}>
           <View>
             <Text style={styles.headerTitle}>REPORTS</Text>
@@ -268,7 +269,7 @@ export default function ReportsScreen() {
 
 const styles = StyleSheet.create({
   container:     { flex: 1, backgroundColor: colors.surface[950] },
-  header:        { paddingTop: 50, borderBottomWidth: 1, borderBottomColor: colors.surface[800], overflow: 'hidden' },
+  header:        { borderBottomWidth: 1, borderBottomColor: colors.surface[800], overflow: 'hidden' },
   headerTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.xl, marginBottom: spacing.md },
   headerTitle:   { fontSize: 24, fontWeight: '900', color: colors.white, letterSpacing: -1 },
   headerSub:     { fontSize: 10, fontWeight: '800', color: colors.brand[400], letterSpacing: 1.5 },
