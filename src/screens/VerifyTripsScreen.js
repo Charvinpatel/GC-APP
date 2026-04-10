@@ -41,7 +41,7 @@ export default function VerifyTripsScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [selectedTrip, setSelectedTrip] = useState(null);
+  const [selectedGroup, setSelectedGroup] = useState(null);
   const [form, setForm]                 = useState(EMPTY_FORM);
   const [saving, setSaving]             = useState(false);
   const [matchingTripId, setMatchingTripId] = useState('');
@@ -105,14 +105,44 @@ export default function VerifyTripsScreen() {
     return list.sort((a, b) => dayjs(b.createdAt || b.date).unix() - dayjs(a.createdAt || a.date).unix());
   }, [driverTrips, activeTab, isDriver, user, filters]);
 
-  const grouped = useMemo(() => {
-    const g = {};
+  const groupedByDateAndVehicle = useMemo(() => {
+    const dates = {};
     filtered.forEach(t => {
       const d = dayjs(t.date).format('YYYY-MM-DD');
-      if (!g[d]) g[d] = [];
-      g[d].push(t);
+      if (!dates[d]) dates[d] = {};
+
+      const vId = t.vehicleId || 'unknown';
+      const locKey = `${t.source || 'Mine'} → ${t.destination || 'Site'}`;
+      const status = t.status;
+      const groupKey = `${vId}_${locKey}_${status}`; 
+
+      if (!dates[d][groupKey]) {
+        dates[d][groupKey] = {
+           id: groupKey,
+           vehicle: t.vehicle,
+           driver: t.driver,
+           source: t.source,
+           destination: t.destination,
+           soilType: t.soilType,
+           status: t.status,
+           date: t.date,
+           totalRounds: 0,
+           createdAt: t.createdAt,
+           allTrips: []
+        };
+      }
+      dates[d][groupKey].allTrips.push(t);
+      dates[d][groupKey].totalRounds += (Number(t.trips) || 1);
     });
-    return Object.entries(g).sort((a, b) => b[0].localeCompare(a[0]));
+
+    return Object.entries(dates).map(([date, groups]) => ({
+      date,
+      groups: Object.values(groups).sort((a,b) => dayjs(b.createdAt).unix() - dayjs(a.createdAt).unix())
+    })).sort((a, b) => b.date.localeCompare(a.date));
+  }, [filtered]);
+
+  const dynamicVerifiedTrips = useMemo(() => {
+     return filtered.filter(t => t.status === 'verified').reduce((s,t) => s + (Number(t.trips) || 1), 0);
   }, [filtered]);
 
   const stats = useMemo(() => ({
@@ -124,16 +154,20 @@ export default function VerifyTripsScreen() {
   }), [driverTrips]);
 
   const handleVerify = async (status) => {
-    if (!selectedTrip) return;
+    if (!selectedGroup) return;
     setSaving(true);
     try {
-      await verifyDriverTrip(selectedTrip.id, {
-        status,
-        systemTripId: matchingTripId || undefined,
-        notes: verifyNote,
-      });
-      Toast.show({ type: 'success', text1: 'Success', text2: `Round ${status}` });
+      const promises = selectedGroup.allTrips.map(t => 
+        verifyDriverTrip(t.id, {
+          status,
+          systemTripId: matchingTripId || undefined,
+          notes: verifyNote,
+        })
+      );
+      await Promise.all(promises);
+      Toast.show({ type: 'success', text1: 'Success', text2: `Verified ${selectedGroup.allTrips.length} records as ${status}` });
       setShowVerifyModal(false);
+      load();
     } catch (e) {
       Toast.show({ type: 'error', text1: 'Error', text2: e.message });
     } finally {
@@ -174,13 +208,13 @@ export default function VerifyTripsScreen() {
   const destOpts    = locations.map(l => ({ label: l.name, value: l.name }));
 
   const potentialMatches = useMemo(() => {
-    if (!selectedTrip) return [];
+    if (!selectedGroup) return [];
     return trips.filter(t =>
-      dayjs(t.date).format('YYYY-MM-DD') === dayjs(selectedTrip.date).format('YYYY-MM-DD') &&
-      String(t.driverId) === String(selectedTrip.driverId) &&
-      String(t.vehicleId) === String(selectedTrip.vehicleId)
+      dayjs(t.date).format('YYYY-MM-DD') === dayjs(selectedGroup.date).format('YYYY-MM-DD') &&
+      String(t.driverId) === String(selectedGroup.driver?.id || selectedGroup.driverId) && // using driver from group
+      String(t.vehicleId) === String(selectedGroup.vehicle?.id || selectedGroup.vehicleId)
     );
-  }, [selectedTrip, trips]);
+  }, [selectedGroup, trips]);
 
   const TABS = [
     { key: 'all',      label: 'All' },
@@ -200,7 +234,7 @@ export default function VerifyTripsScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={styles.headerTitle}>TODAY TRIPS</Text>
-            <Text style={styles.headerSub}>{stats.pending} RECORDS WAITING REVIEW</Text>
+            <Text style={styles.headerSub}>{dynamicVerifiedTrips} VERIFIED TRIPS</Text>
           </View>
           <TouchableOpacity 
             style={[styles.filterPill, hasFilters && styles.filterPillActive]} 
@@ -217,8 +251,8 @@ export default function VerifyTripsScreen() {
 
       {/* ── Main List ───────────────────────── */}
       <FlatList
-        data={grouped}
-        keyExtractor={([date]) => date}
+        data={groupedByDateAndVehicle}
+        keyExtractor={(item) => item.date}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand[500]} />}
@@ -227,7 +261,7 @@ export default function VerifyTripsScreen() {
         maxToRenderPerBatch={5}
         windowSize={5}
         removeClippedSubviews={Platform.OS === 'android'}
-        renderItem={({ item: [date, dayTrips] }) => (
+        renderItem={({ item: { date, groups } }) => (
           <View style={styles.dayGroup}>
             <View style={styles.dayHeader}>
               <View style={styles.dayLine} />
@@ -235,68 +269,68 @@ export default function VerifyTripsScreen() {
               <View style={styles.dayLine} />
             </View>
 
-            {dayTrips.map(t => (
+            {groups.map(g => (
               <GlassCard 
-                key={t.id} 
+                key={g.id} 
                 style={styles.tripCard}
-                onPress={() => isAdmin && t.status === 'pending' ? (setSelectedTrip(t), setShowVerifyModal(true)) : null}
+                onPress={() => isAdmin && g.status === 'pending' ? (setSelectedGroup(g), setShowVerifyModal(true)) : null}
               >
                 <View style={styles.cardHeader}>
                   <View style={styles.driverSection}>
                     <LinearGradient colors={[colors.brand[500] + '30', 'transparent']} style={styles.avatarGlow} />
                     <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{t.driver?.name?.[0] || 'D'}</Text>
+                      <Text style={styles.avatarText}>{g.vehicle?.number?.[0] || 'V'}</Text>
                     </View>
                     <View>
-                      <Text style={styles.driverName}>{t.driver?.name || 'Unknown'}</Text>
-                      <Text style={styles.vehicleNo}>{t.vehicle?.number || '—'}</Text>
+                      <Text style={styles.driverName}>{g.vehicle?.number || 'Unknown Vehicle'}</Text>
+                      <Text style={styles.vehicleNo}>{g.driver?.name || 'Multiple Drivers'}</Text>
                     </View>
                   </View>
                   
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(t.status) + '15', borderColor: getStatusColor(t.status) + '40' }]}>
-                    <View style={[styles.statusDot, { backgroundColor: getStatusColor(t.status) }]} />
-                    <Text style={[styles.statusText, { color: getStatusColor(t.status) }]}>{t.status || 'pending'}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(g.status) + '15', borderColor: getStatusColor(g.status) + '40' }]}>
+                    <View style={[styles.statusDot, { backgroundColor: getStatusColor(g.status) }]} />
+                    <Text style={[styles.statusText, { color: getStatusColor(g.status) }]}>{g.status || 'pending'}</Text>
                   </View>
                 </View>
 
                 <View style={styles.cardContent}>
                   <View style={styles.contentRow}>
                     <View style={styles.metricItem}>
-                      <Text style={styles.metricLabel}>ROUNDS</Text>
-                      <Text style={[styles.metricValue, { color: colors.brand[400] }]}>{t.trips}</Text>
+                      <Text style={styles.metricLabel}>TOTAL ROUNDS</Text>
+                      <Text style={[styles.metricValue, { color: colors.brand[400] }]}>{g.totalRounds}</Text>
+                    </View>
+                    <View style={styles.metricItem}>
+                      <Text style={styles.metricLabel}>ENTRIES</Text>
+                      <Text style={styles.metricValue}>{g.allTrips.length}</Text>
                     </View>
                     <View style={styles.metricItem}>
                       <Text style={styles.metricLabel}>MATERIAL</Text>
-                      <Text style={styles.metricValue}>{t.soilType?.name || '—'}</Text>
-                    </View>
-                    <View style={styles.metricItem}>
-                      <Text style={styles.metricLabel}>TIME</Text>
-                      <Text style={styles.metricValue}>{dayjs(t.createdAt).format('hh:mm A')}</Text>
+                      <Text style={styles.metricValue}>{g.soilType?.name || '—'}</Text>
                     </View>
                   </View>
 
                   <View style={styles.routeBox}>
                     <Ionicons name="location-outline" size={14} color={colors.surface[500]} />
-                    <Text style={styles.routeText}>{t.source || 'MINE'}</Text>
+                    <Text style={styles.routeText}>{g.source || 'MINE'}</Text>
                     <Ionicons name="arrow-forward" size={12} color={colors.surface[700]} style={{ marginHorizontal: 6 }} />
-                    <Text style={styles.routeText}>{t.destination || 'SITE'}</Text>
+                    <Text style={styles.routeText}>{g.destination || 'SITE'}</Text>
                   </View>
 
-                  {t.notes && (
+                  {g.allTrips.some(t => t.notes) && (
                     <View style={styles.notesBox}>
-                      <Text style={styles.notesText} numberOfLines={1}>{t.notes}</Text>
+                      <Text style={styles.notesText} numberOfLines={1}>Contains user notes</Text>
                     </View>
                   )}
                 </View>
 
-                {isAdmin && t.status === 'pending' && (
+                {isAdmin && g.status === 'pending' && (
                   <View style={styles.cardFooter}>
                     <Button 
-                      title="Verify Record" 
+                      title="Verify Group Records" 
                       variant="primary" 
                       small 
                       icon="shield-checkmark" 
-                      onPress={() => (setSelectedTrip(t), setShowVerifyModal(true))}
+                      onPress={() => (setSelectedGroup(g), setShowVerifyModal(true))}
                       style={styles.verifyBtn}
                       glow
                     />
@@ -369,15 +403,15 @@ export default function VerifyTripsScreen() {
       </BottomModal>
 
       {/* 3. Verification Modal */}
-      <BottomModal visible={showVerifyModal} onClose={() => setShowVerifyModal(false)} title="VERIFY TRIP">
-        {selectedTrip && (
+      <BottomModal visible={showVerifyModal} onClose={() => setShowVerifyModal(false)} title="VERIFY GROUP RECORDS">
+        {selectedGroup && (
           <View style={styles.modalContent}>
             <GlassCard style={styles.selectionRecall}>
                <View>
-                 <Text style={styles.recallTitle}>{selectedTrip.driver?.name}</Text>
-                 <Text style={styles.recallSub}>{selectedTrip.vehicle?.number} · {selectedTrip.trips} Trips</Text>
+                 <Text style={styles.recallTitle}>{selectedGroup.vehicle?.number}</Text>
+                 <Text style={styles.recallSub}>{selectedGroup.totalRounds} Trips across {selectedGroup.allTrips.length} Entries</Text>
                </View>
-               <Badge label={dayjs(selectedTrip.date).format('DD MMM')} color={colors.brand[400]} />
+               <Badge label={dayjs(selectedGroup.date).format('DD MMM')} color={colors.brand[400]} />
             </GlassCard>
 
             <View style={styles.matchingSection}>

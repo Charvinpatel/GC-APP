@@ -205,7 +205,7 @@ export default function TripsScreen() {
   const sourceOpts  = locations.map(l => ({ label: l.name, value: l.name }));
   const destOpts    = locations.map(l => ({ label: l.name, value: l.name }));
 
-  const totalTripsAllVehicles = useMemo(() => trips.reduce((sum, t) => sum + (t.trips || 1), 0), [trips]);
+  const totalTripsAllVehicles = useMemo(() => trips.reduce((sum, t) => sum + (Number(t.trips) || 1), 0), [trips]);
 
   const vehicleGroups = useMemo(() => {
     const groups = {};
@@ -236,7 +236,7 @@ export default function TripsScreen() {
       if (!groups[groupKey].locations[locKey]) {
         groups[groupKey].locations[locKey] = 0;
       }
-      const numTrips = (t.trips || 1);
+      const numTrips = (Number(t.trips) || 1);
       groups[groupKey].locations[locKey] += numTrips;
       groups[groupKey].totalTrips += numTrips;
       groups[groupKey].totalRevenue += rev;
