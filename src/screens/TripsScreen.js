@@ -8,21 +8,37 @@ import { useStore } from '../store/useStore';
 import { Button, Card, Badge, EmptyState, BottomModal, Input, SelectPicker, Loader, Row, DatePicker } from '../components';
 import { colors, spacing, radius, shadows } from '../utils/theme';
 import { formatCurrency, formatDateShort, getTripProfit, getTripRevenue } from '../utils/helpers';
-
 const EMPTY_MULTI_TRIP = {
   date: dayjs().format('YYYY-MM-DD'),
   driverId: '', vehicleId: '',
   routes: [{ id: '1', soilTypeId: '', source: '', destination: '', trips: '1', buyPrice: '', sellPrice: '', notes: '' }],
 };
-
 export default function TripsScreen() {
   const {
-    trips, tripsMeta, tripsSummary,
+    driverTrips,
     drivers, vehicles, soilTypes, locations,
-    fetchTrips, addTrip, updateTrip, deleteTrip,
-    fetchDrivers, fetchVehicles, fetchLocations,
+    fetchDriverTrips, addDriverTrip, updateDriverTrip, deleteDriverTrip,
+    fetchDrivers, fetchVehicles, fetchLocations, fetchSoilTypes
   } = useStore();
-
+  const tripsSummary = useMemo(() => {
+    return driverTrips.filter(t => t.status === 'verified').reduce((acc, t) => {
+        const dBase = (t.destination || '').split('|PRICE:')[0].trim();
+        const destLoc = locations.find(l => (l.name || '').split('|PRICE:')[0].trim() === dBase);
+        let locSellPrice = 0;
+        if (destLoc && destLoc.name && destLoc.name.includes('|PRICE:')) {
+           locSellPrice = Number(destLoc.name.split('|PRICE:')[1].trim());
+        } else if (destLoc?.price) {
+           locSellPrice = Number(destLoc.price);
+        }
+        const buyP  = Number(t.soilType?.buyPrice) || Number(t.buyPrice) || 0;
+        const sellP = locSellPrice || Number(t.sellPrice) || Number(t.soilType?.sellPrice) || 0;
+        const numTrips = Number(t.trips) || 1;
+        acc.revenue += sellP * numTrips;
+        acc.profit += (sellP - buyP) * numTrips;
+        acc.trips += numTrips;
+        return acc;
+    }, { revenue: 0, profit: 0, trips: 0 });
+  }, [driverTrips, locations]);
   const [refreshing, setRefreshing]   = useState(false);
   const [loading, setLoading]         = useState(true);
   const [showModal, setShowModal]     = useState(false);
@@ -33,70 +49,56 @@ export default function TripsScreen() {
   
   const [filterType, setFilterType]   = useState('today'); // 'all', 'today', 'custom'
   const [customDate, setCustomDate]   = useState(dayjs().format('YYYY-MM-DD'));
-
   const activeDate = useMemo(() => {
     if (filterType === 'today') return dayjs().format('YYYY-MM-DD');
     if (filterType === 'all') return '';
     return customDate;
   }, [filterType, customDate]);
-
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true);
     try {
-      await fetchTrips({ page: 1, limit: 1000, date: activeDate });
+      await fetchDriverTrips({ date: activeDate, limit: 1000 });
       await Promise.all([
-        drivers.length   === 0 ? fetchDrivers({ limit: 200 })   : Promise.resolve(),
-        vehicles.length  === 0 ? fetchVehicles({ limit: 200 })  : Promise.resolve(),
-        locations.length === 0 ? fetchLocations({ limit: 500 }) : Promise.resolve(),
+        drivers.length   === 0 || force ? fetchDrivers({ limit: 200 })   : Promise.resolve(),
+        vehicles.length  === 0 || force ? fetchVehicles({ limit: 200 })  : Promise.resolve(),
+        locations.length === 0 || force ? fetchLocations({ limit: 500 }) : Promise.resolve(),
+        soilTypes.length === 0 || force ? fetchSoilTypes()               : Promise.resolve(),
       ]);
     } catch {}
     setLoading(false);
-  }, [activeDate]);
-
+  }, [activeDate, fetchDriverTrips, fetchDrivers, fetchVehicles, fetchLocations, fetchSoilTypes, drivers.length, vehicles.length, locations.length, soilTypes.length]);
   const refreshTrigger = useStore(s => s.refreshTrigger);
   useEffect(() => { load(); }, [activeDate]);
   useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
-
   const onRefresh = async () => {
     setRefreshing(true);
-    await load();
+    await load(true);
     setRefreshing(false);
   };
-
-  const openAdd = () => {
-    setEditing(null);
-    setForm({
-      ...EMPTY_MULTI_TRIP,
-      date: dayjs().format('YYYY-MM-DD'),
-      routes: [{ id: Date.now().toString(), soilTypeId: '', source: '', destination: '', trips: '1', buyPrice: '', sellPrice: '', notes: '' }]
-    });
-    setShowModal(true);
-  };
-
   const openEdit = (group) => {
     setEditing(group);
     
-    // We assume the global driver/vehicle is identical across the group, use the first.
+    // Global fields from the first trip
     const firstTrip = group.allTrips[0] || {};
     
     setForm({
       date:       group.date || dayjs().format('YYYY-MM-DD'),
       driverId:   firstTrip.driverId || '',
       vehicleId:  firstTrip.vehicleId || '',
-      routes:     group.allTrips.map(trip => ({
-        id:          trip.id,
-        soilTypeId:  trip.soilTypeId || '',
-        source:      trip.source || '',
-        destination: trip.destination || '',
-        trips:       String(trip.trips || 1),
-        buyPrice:    String(trip.buyPrice || ''),
-        sellPrice:   String(trip.sellPrice || ''),
-        notes:       trip.notes || '',
+      routes:     group.summaries.map((s, idx) => ({
+        id:          `sum_${idx}`, 
+        originalIds: s.ids, 
+        soilTypeId:  s.soilTypeId || '',
+        source:      s.source || '',
+        destination: s.destination || '',
+        trips:       String(s.tripsCount || 1),
+        buyPrice:    String(s.buyPrice || ''),
+        sellPrice:   String(s.sellPrice || ''),
+        notes:       s.notes || '',
       }))
     });
     setShowModal(true);
   };
-
   const handleSoilChange = (soilId, routeId) => {
     const soil = soilTypes.find(s => s.id === soilId);
     setForm(f => ({
@@ -105,29 +107,60 @@ export default function TripsScreen() {
         ...r,
         soilTypeId: soilId,
         buyPrice:  soil?.buyPrice  ? String(soil.buyPrice)  : r.buyPrice,
-        sellPrice: soil?.sellPrice ? String(soil.sellPrice) : r.sellPrice,
       } : r)
     }));
   };
-
   const updateRoute = (routeId, field, value) => {
+    if (field === 'destination') {
+      const cleanValue = (value || '').split('|PRICE:')[0].trim();
+      const destLoc = locations.find(l => (l.name || '').split('|PRICE:')[0].trim() === cleanValue);
+      setForm(f => ({
+        ...f,
+        routes: f.routes.map(r => {
+          if (r.id === routeId) {
+            let extractedPrice = r.sellPrice;
+            if (destLoc && destLoc.name && destLoc.name.includes('|PRICE:')) {
+              extractedPrice = destLoc.name.split('|PRICE:')[1].trim();
+            } else if (destLoc?.price) {
+              extractedPrice = String(destLoc.price);
+            }
+            return {
+              ...r,
+              destination: cleanValue,
+              sellPrice: extractedPrice || String(r.sellPrice || 0),
+            };
+          }
+          return r;
+        })
+      }));
+      return;
+    }
+    if (field === 'source') {
+      const cleanValue = (value || '').split('|PRICE:')[0].trim();
+      setForm(f => ({
+        ...f,
+        routes: f.routes.map(r => r.id === routeId ? { ...r, source: cleanValue } : r)
+      }));
+      return;
+    }
     setForm(f => ({
       ...f,
       routes: f.routes.map(r => r.id === routeId ? { ...r, [field]: value } : r)
     }));
   };
-
-  const addRouteRow = () => {
+  const addRoute = () => {
+    const newId = String(Date.now());
     setForm(f => ({
-       ...f,
-       routes: [...f.routes, { id: Date.now().toString(), soilTypeId: '', source: '', destination: '', trips: '1', buyPrice: '', sellPrice: '', notes: '' }]
+      ...f,
+      routes: [...f.routes, { id: newId, soilTypeId: '', source: '', destination: '', trips: '1', buyPrice: '', sellPrice: '', notes: '' }]
     }));
   };
-
-  const removeRouteRow = (id) => {
-    setForm(f => ({ ...f, routes: f.routes.filter(r => r.id !== id) }));
+  const removeRoute = (routeId) => {
+    setForm(f => ({
+      ...f,
+      routes: f.routes.filter(r => r.id !== routeId)
+    }));
   };
-
   const save = async () => {
     if (!form.driverId || !form.vehicleId || !form.date) {
       Alert.alert('Error', 'Please fill all required global fields');
@@ -141,44 +174,33 @@ export default function TripsScreen() {
            return;
         }
     }
-
     setSaving(true);
     try {
-      if (editing) {
-        const originalTripIds = editing.allTrips.map(t => t.id);
-        const currentRouteIds = form.routes.map(r => r.id);
-        
-        const deletedTripIds = originalTripIds.filter(id => !currentRouteIds.includes(id));
-        const promises = [];
-        
-        deletedTripIds.forEach(id => promises.push(deleteTrip(id)));
-        
-        form.routes.forEach(r => {
-          const payload = {
-            date: form.date, driverId: form.driverId, vehicleId: form.vehicleId,
-            source: r.source, destination: r.destination, soilTypeId: r.soilTypeId,
-            trips: Number(r.trips) || 1, buyPrice: Number(r.buyPrice), sellPrice: Number(r.sellPrice),
-            notes: r.notes || ''
-          };
-          if (originalTripIds.includes(r.id)) {
-            promises.push(updateTrip(r.id, payload));
-          } else {
-            promises.push(addTrip(payload));
-          }
-        });
-        await Promise.all(promises);
-      } else {
-        const promises = form.routes.map(r => {
-          const payload = {
-            date: form.date, driverId: form.driverId, vehicleId: form.vehicleId,
-            source: r.source, destination: r.destination, soilTypeId: r.soilTypeId,
-            trips: Number(r.trips) || 1, buyPrice: Number(r.buyPrice), sellPrice: Number(r.sellPrice),
-            notes: r.notes || ''
-          };
-          return addTrip(payload);
-        });
-        await Promise.all(promises);
+      // 1. Delete all original trips in this vehicle+date group to ensure clean state
+      if (editing?.allTrips) {
+        const deletePromises = editing.allTrips.map(t => deleteDriverTrip(t.id));
+        await Promise.all(deletePromises);
       }
+
+      // 2. Create new records for each summarized route in the form
+      const savePromises = form.routes.map(r => {
+        const payload = {
+          date: form.date, 
+          driverId: form.driverId, 
+          vehicleId: form.vehicleId,
+          source: r.source, 
+          destination: r.destination, 
+          soilTypeId: r.soilTypeId,
+          trips: Number(r.trips) || 1, 
+          buyPrice: Number(r.buyPrice), 
+          sellPrice: Number(r.sellPrice),
+          notes: r.notes || '',
+          status: 'verified'
+        };
+        return addDriverTrip(payload);
+      });
+      
+      await Promise.all(savePromises);
       setShowModal(false);
       load();
     } catch (e) {
@@ -187,33 +209,41 @@ export default function TripsScreen() {
       setSaving(false);
     }
   };
-
   const confirmDelete = (group) => {
     Alert.alert('Delete Trip Group', 'Are you sure you want to delete all trip records for this vehicle on this day?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete All', style: 'destructive', onPress: async () => {
-         const promises = group.allTrips.map(t => deleteTrip(t.id));
+         const promises = group.allTrips.map(t => deleteDriverTrip(t.id));
          await Promise.all(promises);
          load();
       } },
     ]);
   };
-
   const driverOpts  = drivers.map(d   => ({ label: d.name,   value: d.id }));
   const vehicleOpts = vehicles.map(v  => ({ label: v.number, value: v.id }));
   const soilOpts    = soilTypes.map(s => ({ label: s.name,   value: s.id }));
-  const sourceOpts  = locations.map(l => ({ label: l.name, value: l.name }));
-  const destOpts    = locations.map(l => ({ label: l.name, value: l.name }));
-
-  const totalTripsAllVehicles = useMemo(() => trips.reduce((sum, t) => sum + (Number(t.trips) || 1), 0), [trips]);
-
+  const sourceOpts  = locations.map(l => {
+    const cleanName = (l.name || '').split('|PRICE:')[0].trim();
+    return { 
+      label: cleanName, 
+      value: cleanName 
+    };
+  });
+  const destOpts    = locations.map(l => {
+    const cleanName = (l.name || '').split('|PRICE:')[0].trim();
+    return { 
+      label: cleanName, 
+      value: cleanName 
+    };
+  });
+  const totalTripsAllVehicles = tripsSummary.trips;
+  
   const vehicleGroups = useMemo(() => {
     const groups = {};
-    trips.forEach(t => {
+    driverTrips.filter(t => t.status === 'verified').forEach(t => {
       const vId = t.vehicleId || 'unknown';
       const dateKey = t.date || 'unknown_date';
       const groupKey = `${vId}_${dateKey}`;
-
       if (!groups[groupKey]) {
         groups[groupKey] = {
           id: groupKey,
@@ -221,35 +251,62 @@ export default function TripsScreen() {
           vehicle: t.vehicle,
           driver: t.driver, // latest driver
           date: t.date,
-          locations: {},
+          routeSummaries: {}, // Key: source-dest-material
           totalTrips: 0,
           totalRevenue: 0,
           totalProfit: 0,
         };
       }
       
-      const rev = getTripRevenue(t);
-      const prof = getTripProfit(t);
-      
-      groups[groupKey].allTrips.push(t);
-      const locKey = `${t.source || 'Mine'} → ${t.destination || 'Site'}`;
-      if (!groups[groupKey].locations[locKey]) {
-        groups[groupKey].locations[locKey] = 0;
-      }
       const numTrips = (Number(t.trips) || 1);
-      groups[groupKey].locations[locKey] += numTrips;
+      groups[groupKey].allTrips.push(t);
+      
+      const matName = t.soilType?.name || 'Material';
+      const sourceBase = (t.source || '').split('|PRICE:')[0].trim();
+      const destBase = (t.destination || '').split('|PRICE:')[0].trim();
+      const summaryKey = `${sourceBase}-${destBase}-${matName}`;
+
+      const destLoc = locations.find(l => (l.name || '').split('|PRICE:')[0].trim() === destBase);
+      const buyP  = Number(t.soilType?.buyPrice) || Number(t.buyPrice) || 0;
+      let locSellPrice = 0;
+      if (destLoc && destLoc.name && destLoc.name.includes('|PRICE:')) {
+         locSellPrice = Number(destLoc.name.split('|PRICE:')[1].trim());
+      } else if (destLoc?.price) {
+         locSellPrice = Number(destLoc.price);
+      }
+      const sellP = locSellPrice || Number(t.sellPrice) || Number(t.soilType?.sellPrice) || 0;
+
+      if (!groups[groupKey].routeSummaries[summaryKey]) {
+        groups[groupKey].routeSummaries[summaryKey] = {
+           source: sourceBase,
+           destination: destBase,
+           material: matName,
+           soilTypeId: t.soilTypeId,
+           buyPrice: buyP,
+           sellPrice: sellP,
+           notes: t.notes,
+           tripsCount: 0,
+           ids: []
+        };
+      }
+      
+      groups[groupKey].routeSummaries[summaryKey].tripsCount += numTrips;
+      groups[groupKey].routeSummaries[summaryKey].ids.push(t.id);
       groups[groupKey].totalTrips += numTrips;
-      groups[groupKey].totalRevenue += rev;
-      groups[groupKey].totalProfit += prof;
+      
+      groups[groupKey].totalRevenue += sellP * numTrips;
+      groups[groupKey].totalProfit += (sellP - buyP) * numTrips;
     });
-    return Object.values(groups).sort((a, b) => {
+    return Object.values(groups).map(g => ({
+       ...g,
+       summaries: Object.values(g.routeSummaries)
+    })).sort((a, b) => {
       if (a.date !== b.date) {
          return new Date(b.date || 0) - new Date(a.date || 0);
       }
       return b.totalTrips - a.totalTrips;
     });
-  }, [trips]);
-
+  }, [driverTrips, locations]);
   const renderGroup = ({ item: g }) => (
     <Card style={styles.tripCard}>
       <View style={styles.tripHeader}>
@@ -259,7 +316,7 @@ export default function TripsScreen() {
            </View>
            <View>
               <Text style={styles.vehicleNo}>{g.vehicle?.number || 'Unknown Vehicle'}</Text>
-              <Text style={styles.driverName}>{g.driver?.name || 'Multiple Drivers'}  •  {formatDateShort(g.date)}</Text>
+              <Text style={styles.driverName}>{g.driver?.name || 'Multiple Drivers'}  {formatDateShort(g.date)}</Text>
            </View>
         </View>
         <View style={{ flexDirection: 'row', gap: 6 }}>
@@ -271,18 +328,21 @@ export default function TripsScreen() {
           </TouchableOpacity>
         </View>
       </View>
-
       <View style={{ marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.surface[800] }}>
-         {Object.entries(g.locations).map(([loc, count], idx) => (
-            <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-               <Text style={{ fontSize: 12, color: colors.surface[400], flex: 1 }}>
-                  <Ionicons name="location-outline" size={12} color={colors.surface[500]} />  {loc}
-               </Text>
-               <Text style={{ fontSize: 12, fontWeight: 'bold', color: colors.white }}>{count} Trips</Text>
+         {g.summaries.map((s, idx) => (
+            <View key={idx} style={{ marginBottom: 12, paddingBottom: 8, borderBottomWidth: idx < g.summaries.length - 1 ? 1 : 0, borderBottomColor: colors.surface[800] + '40' }}>
+               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: colors.white, flex: 1 }}>
+                     <Ionicons name="location-outline" size={13} color={colors.brand[400]} />  {s.source} → {s.destination}
+                  </Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                     <Text style={{ fontSize: 12, fontWeight: 'bold', color: colors.white }}>{s.tripsCount} Trips</Text>
+                     <Text style={{ fontSize: 9, fontWeight: '800', color: colors.surface[500], textTransform: 'uppercase', marginTop: 1 }}>{s.material}</Text>
+                  </View>
+               </View>
             </View>
          ))}
       </View>
-
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.surface[800] }}>
          <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 11, fontWeight: '900', color: colors.surface[500], textTransform: 'uppercase', letterSpacing: 1 }}>Metrics</Text>
@@ -304,9 +364,7 @@ export default function TripsScreen() {
       </View>
     </Card>
   );
-
   if (loading) return <Loader />;
-
   return (
     <View style={styles.container}>
       {/* Summary Bar */}
@@ -326,7 +384,6 @@ export default function TripsScreen() {
           <Text style={styles.summaryLabel}>Trips</Text>
         </View>
       </View>
-
       <View style={styles.headerControls}>
         <View style={styles.radioGroup}>
           {[
@@ -346,7 +403,6 @@ export default function TripsScreen() {
             );
           })}
         </View>
-
         {filterType === 'custom' && (
           <View style={styles.dateSelector}>
             <TouchableOpacity onPress={() => setCustomDate(dayjs(customDate).subtract(1, 'day').format('YYYY-MM-DD'))} style={styles.dateBtn}>
@@ -359,14 +415,12 @@ export default function TripsScreen() {
                   onConfirm={(d) => setCustomDate(dayjs(d).format('YYYY-MM-DD'))} 
                />
             </View>
-
             <TouchableOpacity onPress={() => setCustomDate(dayjs(customDate).add(1, 'day').format('YYYY-MM-DD'))} style={styles.dateBtn}>
               <Ionicons name="chevron-forward" size={20} color={colors.white} />
             </TouchableOpacity>
           </View>
         )}
       </View>
-
       <FlatList
         data={vehicleGroups}
         keyExtractor={g => g.id}
@@ -379,14 +433,8 @@ export default function TripsScreen() {
         windowSize={5}
         removeClippedSubviews={Platform.OS === 'android'}
       />
-
-      {/* FAB */}
-      <TouchableOpacity style={styles.fab} onPress={openAdd} activeOpacity={0.85}>
-        <Ionicons name="add" size={28} color={colors.white} />
-      </TouchableOpacity>
-
-      {/* Add/Edit Trips Modal */}
-      <BottomModal visible={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Trip Logs' : 'Add Multiple Trip Logs'}>
+      {/* Edit Trips Modal */}
+      <BottomModal visible={showModal} onClose={() => setShowModal(false)} title="Edit Trip Logs">
         <View>
            <Text style={[styles.sectionTitle, { marginTop: spacing.sm }]}>GLOBAL DETAILS</Text>
            
@@ -402,7 +450,6 @@ export default function TripsScreen() {
            <View style={{ marginBottom: spacing.md }}>
              <DatePicker label="Date *" date={form.date} onConfirm={(d) => setForm(f => ({ ...f, date: dayjs(d).format('YYYY-MM-DD') }))} />
            </View>
-
            <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.surface[800], paddingTop: spacing.md }}>
              <Text style={styles.sectionTitle}>ROUTE ENTRIES</Text>
              
@@ -413,8 +460,8 @@ export default function TripsScreen() {
                     <View style={styles.routeHeader}>
                        <Text style={styles.routeTitle}>ROUTE #{index + 1}</Text>
                        {form.routes.length > 1 && (
-                         <TouchableOpacity onPress={() => removeRouteRow(r.id)} style={{ padding: 4 }}>
-                            <Ionicons name="trash-outline" size={16} color={colors.red} />
+                         <TouchableOpacity onPress={() => removeRoute(r.id)} style={{ padding: 4 }}>
+                           <Text style={{ fontSize: 10, fontWeight: '900', color: colors.red }}>REMOVE</Text>
                          </TouchableOpacity>
                        )}
                     </View>
@@ -429,7 +476,6 @@ export default function TripsScreen() {
                         <SelectPicker label="Destination *" value={r.destination} options={destOpts} onChange={v => updateRoute(r.id, 'destination', v)} placeholder="Destination" />
                       </View>
                     </View>
-
                     <View style={{ flexDirection: 'row', gap: spacing.md }}>
                       <View style={{ flex: 1 }}>
                         <Input label="Trips *" keyboardType="numeric" value={r.trips} onChangeText={v => updateRoute(r.id, 'trips', v)} />
@@ -441,7 +487,6 @@ export default function TripsScreen() {
                         <Input label="Sell Price *" icon="arrow-up-circle-outline" keyboardType="numeric" value={r.sellPrice} onChangeText={v => updateRoute(r.id, 'sellPrice', v)} placeholder="₹0" />
                       </View>
                     </View>
-
                     {Number(r.trips) > 0 && Number(r.buyPrice) > 0 && (
                       <View style={[styles.marginPreview, { borderColor: rMargin >= 0 ? colors.green + '40' : colors.red + '40', backgroundColor: rMargin >= 0 ? colors.green + '10' : colors.red + '10' }]}>
                         <Text style={styles.marginLabel}>Margin</Text>
@@ -452,19 +497,19 @@ export default function TripsScreen() {
                );
              })}
            </View>
-
-           <TouchableOpacity style={styles.addRouteBtn} onPress={addRouteRow}>
-              <Ionicons name="add-circle-outline" size={20} color={colors.brand[400]} />
-              <Text style={styles.addRouteText}>ADD ANOTHER ROUTE</Text>
-           </TouchableOpacity>
-
-           <Button title={editing ? 'Update Trip Data' : 'Save All Trips to Log'} onPress={save} loading={saving} icon="checkmark-circle-outline" style={{ marginTop: spacing.md }} />
+            <TouchableOpacity
+              onPress={addRoute}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: radius.xl, borderWidth: 1.5, borderColor: colors.brand[500] + '60', borderStyle: 'dashed', backgroundColor: colors.brand[500] + '08', marginBottom: spacing.lg }}
+            >
+              <Ionicons name="add-circle-outline" size={18} color={colors.brand[400]} />
+              <Text style={{ fontSize: 13, fontWeight: '800', color: colors.brand[400], letterSpacing: 0.5 }}>ADD ANOTHER ROUTE</Text>
+            </TouchableOpacity>
+           <Button title="Update Trip Data" onPress={save} loading={saving} icon="checkmark-circle-outline" style={{ marginTop: spacing.sm }} />
         </View>
       </BottomModal>
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface[950] },
   summaryBar: {
@@ -477,7 +522,6 @@ const styles = StyleSheet.create({
   summaryDivider: { width: 1, backgroundColor: colors.surface[800] },
   summaryVal:     { fontSize: 16, fontWeight: '700', color: colors.white },
   summaryLabel:   { fontSize: 11, color: colors.surface[500], marginTop: 2 },
-
   headerControls: { padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.surface[800], backgroundColor: colors.surface[900] },
   radioGroup: { flexDirection: 'row', backgroundColor: colors.surface[850], borderRadius: radius.lg, padding: 4 },
   radioTab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: radius.md },
@@ -487,7 +531,6 @@ const styles = StyleSheet.create({
   
   dateSelector: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.md },
   dateBtn: { width: 44, height: 44, borderRadius: radius.lg, backgroundColor: colors.surface[800], alignItems: 'center', justifyContent: 'center' },
-
   list: { padding: spacing.lg, paddingBottom: 100 },
   tripCard: {},
   tripHeader:   { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.sm },
@@ -504,11 +547,9 @@ const styles = StyleSheet.create({
   revenueValue: { fontSize: 13, fontWeight: '600', color: colors.brand[400] },
   actBtns:      { flexDirection: 'row', gap: spacing.sm },
   iconBtn:      { width: 34, height: 34, borderRadius: radius.md, backgroundColor: colors.surface[800], alignItems: 'center', justifyContent: 'center' },
-
   paginationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xl, paddingVertical: spacing.lg },
   pageBtn:       { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface[800], alignItems: 'center', justifyContent: 'center' },
   pageText:      { fontSize: 12, color: colors.surface[400], fontWeight: '600' },
-
   marginPreview: { padding: spacing.md, borderRadius: radius.xl, borderWidth: 1, marginBottom: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   marginLabel:   { fontSize: 11, fontWeight: '700', color: colors.surface[400], textTransform: 'uppercase', letterSpacing: 0.5 },
   marginValue:      { fontSize: 18, fontWeight: '900' },
@@ -522,7 +563,6 @@ const styles = StyleSheet.create({
   routeTitle:       { fontSize: 11, fontWeight: '800', color: colors.surface[400] },
   addRouteBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.brand[500] + '50', backgroundColor: colors.brand[500] + '10', marginBottom: spacing.sm },
   addRouteText:     { fontSize: 12, fontWeight: '800', color: colors.brand[400], letterSpacing: 1 },
-
   fab: {
     position: 'absolute', bottom: 24, right: 20,
     width: 56, height: 56, borderRadius: 28,

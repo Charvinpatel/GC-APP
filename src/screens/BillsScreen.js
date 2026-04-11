@@ -14,13 +14,14 @@ const STATUS_TABS = ['all', 'unpaid', 'paid'];
 
 export default function BillsScreen() {
   const {
-    bills, trips,
-    fetchBills, fetchTrips,
+    bills, driverTrips, locations,
+    fetchBills, fetchDriverTrips, fetchLocations,
     addBill, updateBillStatus, deleteBill,
   } = useStore();
 
   const [loading, setLoading]               = useState(true);
   const [refreshing, setRefreshing]         = useState(false);
+  const [activeView, setActiveView]         = useState('destinations');
   const [statusTab, setStatusTab]           = useState('all');
   const [search, setSearch]                 = useState('');
   const [showModal, setShowModal]           = useState(false);
@@ -35,11 +36,12 @@ export default function BillsScreen() {
     notes: '',
   });
 
-  const load = async () => {
+  const load = async (force = false) => {
     try {
       await Promise.all([
         fetchBills(),
-        fetchTrips({ limit: 2000 }),
+        fetchDriverTrips({ limit: 1000 }),
+        locations.length === 0 || force ? fetchLocations({ limit: 500 }) : Promise.resolve(),
       ]);
     } catch {}
     setLoading(false);
@@ -59,15 +61,17 @@ export default function BillsScreen() {
   }), [bills]);
 
   /* ── Destination summaries ── */
+  const verifiedTrips = useMemo(() => driverTrips.filter(t => t.status === 'verified'), [driverTrips]);
+
   const destSummaries = useMemo(() => {
     const map = {};
-    trips.forEach(t => {
-      const dest = (t.destination || '').trim().toUpperCase() || 'UNSPECIFIED';
+    verifiedTrips.forEach(t => {
+      const dest = (t.destination || '').split('|PRICE:')[0].trim().toUpperCase() || 'UNSPECIFIED';
       if (!map[dest]) map[dest] = { name: dest, total: 0 };
       map[dest].total += (t.trips || 1);
     });
     return Object.values(map).sort((a, b) => b.total - a.total);
-  }, [trips]);
+  }, [verifiedTrips]);
 
   const filteredDestSummaries = useMemo(() => {
     if (!search) return destSummaries;
@@ -89,18 +93,68 @@ export default function BillsScreen() {
   /* ── Available trips for selected destination ── */
   const availableTrips = useMemo(() => {
     if (!selectedDestination) return [];
-    const billedT = new Set(bills.flatMap(b => b.trips || []));
-    return trips.filter(t =>
-      (t.destination || '').trim().toUpperCase() === selectedDestination && !billedT.has(t.id));
-  }, [trips, bills, selectedDestination]);
+    const billedT = new Set(bills.flatMap(b => b.tripIds || b.trips || []));
+    return verifiedTrips.filter(t =>
+      (t.destination || '').split('|PRICE:')[0].trim().toUpperCase() === selectedDestination && !billedT.has(t.id));
+  }, [verifiedTrips, bills, selectedDestination]);
 
   const selectedCount = useMemo(() =>
     availableTrips.filter(t => selectedTripIds.includes(t.id)).reduce((s, t) => s + (t.trips || 1), 0),
   [availableTrips, selectedTripIds]);
 
-  const selectedAmount = useMemo(() =>
-    availableTrips.filter(t => selectedTripIds.includes(t.id)).reduce((s, t) => s + (t.sellPrice || 0) * (t.trips || 1), 0),
-  [availableTrips, selectedTripIds]);
+  const groupedTrips = useMemo(() => {
+    const groups = {};
+    availableTrips.forEach(t => {
+      const dLabel = dayjs(t.date).format('YYYY-MM-DD');
+      if (!groups[dLabel]) {
+        groups[dLabel] = {
+          id: dLabel,
+          date: t.date,
+          tripIds: [],
+          totalTrips: 0,
+          totalPrice: 0,
+          vehicles: new Set()
+        };
+      }
+      
+      const destBase = (t.destination || '').split('|PRICE:')[0].trim();
+      const destLoc = locations.find(l => (l.name || '').split('|PRICE:')[0].trim() === destBase);
+      let locSellP = 0;
+      if (destLoc && destLoc.name && destLoc.name.includes('|PRICE:')) {
+         locSellP = Number(destLoc.name.split('|PRICE:')[1].trim());
+      } else if (destLoc?.price) {
+         locSellP = Number(destLoc.price);
+      }
+      const finalP = locSellP || Number(t.sellPrice) || Number(t.soilType?.sellPrice) || 0;
+
+      groups[dLabel].tripIds.push(t.id);
+      groups[dLabel].totalTrips += Number(t.trips) || 1;
+      groups[dLabel].totalPrice += finalP * (Number(t.trips) || 1);
+      if (t.vehicle?.number) groups[dLabel].vehicles.add(t.vehicle.number);
+    });
+
+    return Object.values(groups).map(g => ({
+       ...g,
+       vehicleText: g.vehicles.size === 1 ? Array.from(g.vehicles)[0] : `${g.vehicles.size} Vehicles`
+    })).sort((a,b) => dayjs(b.date).unix() - dayjs(a.date).unix());
+  }, [availableTrips, locations]);
+
+  const selectedAmount = useMemo(() => {
+    return availableTrips.filter(t => selectedTripIds.includes(t.id)).reduce((s, t) => {
+      // DYNAMIC PAIRING: Find base destination
+      const destBase = (t.destination || '').split('|PRICE:')[0].trim();
+      const destLoc = locations.find(l => (l.name || '').split('|PRICE:')[0].trim() === destBase);
+      let locSellPrice = 0;
+      if (destLoc && destLoc.name && destLoc.name.includes('|PRICE:')) {
+         locSellPrice = Number(destLoc.name.split('|PRICE:')[1].trim());
+      } else if (destLoc?.price) {
+         locSellPrice = Number(destLoc.price);
+      }
+      const finalPrice = locSellPrice || Number(t.sellPrice) || Number(t.soilType?.sellPrice) || 0;
+
+      return s + (finalPrice * (t.trips || 1));
+    }, 0);
+  }, [availableTrips, selectedTripIds, locations]);
 
   const openCreateModal = (dest) => {
     setSelectedDestination(dest);
@@ -193,28 +247,76 @@ export default function BillsScreen() {
         </View>
       </View>
 
-      {/* Status Filter */}
-      <View style={styles.filterStrip}>
-        {STATUS_TABS.map(t => (
-          <TouchableOpacity
-            key={t}
-            style={[
-              styles.filterBtn,
-              statusTab === t && styles.filterBtnActive,
-              statusTab === t && t === 'paid'   && { borderColor: colors.green  + '80', backgroundColor: colors.green  + '15' },
-              statusTab === t && t === 'unpaid' && { borderColor: colors.yellow + '80', backgroundColor: colors.yellow + '15' },
-            ]}
-            onPress={() => setStatusTab(t)}
-          >
-            <Text style={[
-              styles.filterBtnText,
-              statusTab === t && { color: t === 'paid' ? colors.green : t === 'unpaid' ? colors.yellow : colors.brand[400] },
-            ]}>
-              {t.toUpperCase()} ({t === 'all' ? billStats.total : t === 'paid' ? billStats.paid : billStats.unpaid})
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* Main Top-Level Toggle */}
+      <View style={styles.mainToggleContainer}>
+        <TouchableOpacity 
+           style={[styles.mainToggleBtn, activeView === 'destinations' && styles.mainToggleBtnActive]} 
+           onPress={() => setActiveView('destinations')}
+        >
+           <Ionicons name="map" size={14} color={activeView === 'destinations' ? colors.white : colors.surface[500]} />
+           <Text style={[styles.mainToggleText, activeView === 'destinations' && styles.mainToggleTextActive]}>DESTINATIONS</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+           style={[styles.mainToggleBtn, activeView === 'invoices' && styles.mainToggleBtnActive]} 
+           onPress={() => setActiveView('invoices')}
+        >
+           <Ionicons name="receipt" size={14} color={activeView === 'invoices' ? colors.white : colors.surface[500]} />
+           <Text style={[styles.mainToggleText, activeView === 'invoices' && styles.mainToggleTextActive]}>INVOICES</Text>
+        </TouchableOpacity>
       </View>
+
+      {activeView === 'destinations' ? (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 100 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand[500]} />}>
+          {filteredDestSummaries.length === 0 ? (
+            <EmptyState icon="map-outline" message="No pending destinations available for invoicing" />
+          ) : (
+            <View style={styles.destGrid}>
+              {filteredDestSummaries.map((dest, idx) => (
+                <TouchableOpacity key={idx} style={styles.destCard} onPress={() => openCreateModal(dest.name)}>
+                  <View style={styles.destCardAccentBar} />
+                  <View style={styles.destCardInner}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.destCardLabel}>DESTINATION SITE</Text>
+                      <Text style={styles.destCardName}>{dest.name}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.destCardCount}>{dest.total}</Text>
+                      <Text style={styles.destCardSub}>TRIPS</Text>
+                    </View>
+                  </View>
+                  <View style={styles.destCardFooter}>
+                    <Text style={styles.destCardAction}>GENERATE INVOICE</Text>
+                    <Ionicons name="add-circle" size={16} color={colors.brand[400]} />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      ) : (
+        <>
+          {/* Status Filter for Invoices */}
+          <View style={styles.filterStrip}>
+            {STATUS_TABS.map(t => (
+              <TouchableOpacity
+                key={t}
+                style={[
+                  styles.filterBtn,
+                  statusTab === t && styles.filterBtnActive,
+                  statusTab === t && t === 'paid'   && { borderColor: colors.green  + '80', backgroundColor: colors.green  + '15' },
+                  statusTab === t && t === 'unpaid' && { borderColor: colors.yellow + '80', backgroundColor: colors.yellow + '15' },
+                ]}
+                onPress={() => setStatusTab(t)}
+              >
+                <Text style={[
+                  styles.filterBtnText,
+                  statusTab === t && { color: t === 'paid' ? colors.green : t === 'unpaid' ? colors.yellow : colors.brand[400] },
+                ]}>
+                  {t.toUpperCase()} ({t === 'all' ? billStats.total : t === 'paid' ? billStats.paid : billStats.unpaid})
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
       <FlatList
         data={filteredBills}
@@ -227,46 +329,6 @@ export default function BillsScreen() {
         windowSize={5}
         removeClippedSubviews={true}
         updateCellsBatchingPeriod={50}
-
-        ListHeaderComponent={() =>
-          filteredDestSummaries.length > 0 && statusTab === 'all' ? (
-            <View style={styles.destList}>
-              {/* Destinations section */}
-              <View style={styles.sectionHeader}>
-                <Ionicons name="map-outline" size={16} color={colors.brand[400]} />
-                <Text style={styles.sectionTitle}>DESTINATIONS</Text>
-              </View>
-              <View style={styles.destGrid}>
-                {filteredDestSummaries.map((dest, idx) => (
-                  <TouchableOpacity key={idx} style={styles.destCard} onPress={() => openCreateModal(dest.name)}>
-                    {/* Top accent bar */}
-                    <View style={styles.destCardAccentBar} />
-                    <View style={styles.destCardInner}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.destCardLabel}>DESTINATION SITE</Text>
-                        <Text style={styles.destCardName}>{dest.name}</Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={styles.destCardCount}>{dest.total}</Text>
-                        <Text style={styles.destCardSub}>TRIPS</Text>
-                      </View>
-                    </View>
-                    {/* Footer action */}
-                    <View style={styles.destCardFooter}>
-                      <Text style={styles.destCardAction}>GENERATE INVOICE</Text>
-                      <Ionicons name="add-circle" size={16} color={colors.brand[400]} />
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <View style={[styles.sectionHeader, { marginTop: spacing.xl, marginBottom: spacing.sm }]}>
-                <Ionicons name="receipt" size={16} color={colors.brand[400]} />
-                <Text style={styles.sectionTitle}>ALL INVOICES</Text>
-              </View>
-            </View>
-          ) : null
-        }
 
         renderItem={({ item: bill }) => (
           <View style={[
@@ -346,6 +408,8 @@ export default function BillsScreen() {
           </View>
         )}
       />
+        </>
+      )}
 
       {/* Billing Modal */}
       <BottomModal visible={showModal} onClose={() => setShowModal(false)} title="GENERATE INVOICE">
@@ -389,22 +453,36 @@ export default function BillsScreen() {
             </View>
 
             <ScrollView style={styles.selectionScroll} nestedScrollEnabled>
-              {availableTrips.map(t => {
-                const isSel = selectedTripIds.includes(t.id);
+              {groupedTrips.map(g => {
+                // To be selected, all trips in the group must be selected
+                const isSel = g.tripIds.every(id => selectedTripIds.includes(id));
+
+                const toggleGroup = () => {
+                  setSelectedTripIds(prev => {
+                    if (isSel) {
+                      // Remove all current group's tripIds from selected list
+                      return prev.filter(id => !g.tripIds.includes(id));
+                    } else {
+                      // Add all current group's tripIds (avoiding duplicates)
+                      return Array.from(new Set([...prev, ...g.tripIds]));
+                    }
+                  });
+                };
+
                 return (
-                  <TouchableOpacity key={t.id} style={[styles.selItem, isSel && styles.selItemActive]} onPress={() => setSelectedTripIds(p => isSel ? p.filter(id => id !== t.id) : [...p, t.id])}>
+                  <TouchableOpacity key={g.id} style={[styles.selItem, isSel && styles.selItemActive]} onPress={toggleGroup}>
                     <View style={[styles.selCheckbox, isSel && styles.selCheckboxActive]}>
                       {isSel && <Ionicons name="checkmark" size={12} color="#fff" />}
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.selText}>{formatDateShort(t.date)}</Text>
-                      <Text style={styles.selSub}>{t.vehicle?.number} · {t.trips} trips</Text>
+                      <Text style={styles.selText}>{formatDateShort(g.date)} <Text style={{ color: colors.brand[400], fontWeight: '900', fontSize: 10, marginLeft: 6 }}>DAILY LOG</Text></Text>
+                      <Text style={styles.selSub}>{g.vehicleText} · {g.totalTrips} total trips</Text>
                     </View>
-                    <Text style={styles.selPrice}>{formatCurrency((t.sellPrice || 0) * (t.trips || 1))}</Text>
+                    <Text style={styles.selPrice}>{formatCurrency(g.totalPrice)}</Text>
                   </TouchableOpacity>
                 );
               })}
-              {availableTrips.length === 0 && (
+              {groupedTrips.length === 0 && (
                 <View style={styles.selEmpty}>
                   <Ionicons name="alert-circle-outline" size={28} color={colors.yellow} style={{ marginBottom: 8 }} />
                   <Text style={styles.selEmptyText}>No unbilled trips for this destination</Text>
@@ -440,6 +518,12 @@ const styles = StyleSheet.create({
   statVal:      { fontSize: 14, fontWeight: '700', color: colors.white },
   statLbl:      { fontSize: 10, color: colors.surface[500], marginTop: 2 },
 
+  mainToggleContainer: { flexDirection: 'row', backgroundColor: colors.surface[900], padding: 6, marginHorizontal: spacing.lg, marginTop: spacing.md, borderRadius: radius.lg },
+  mainToggleBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: radius.md },
+  mainToggleBtnActive: { backgroundColor: colors.brand[500] },
+  mainToggleText: { fontSize: 11, fontWeight: '800', color: colors.surface[500], textTransform: 'uppercase', letterSpacing: 1 },
+  mainToggleTextActive: { color: colors.white },
+
   filterStrip:  { flexDirection: 'row', gap: 8, paddingHorizontal: spacing.lg, paddingVertical: 12, backgroundColor: colors.surface[950] },
   filterBtn:    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.full, borderWidth: 1, borderColor: colors.surface[800], backgroundColor: 'transparent' },
   filterBtnActive: { borderColor: colors.brand[500] + '80', backgroundColor: colors.brand[500] + '15' },
@@ -450,7 +534,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 11, fontWeight: '900', color: colors.surface[400], letterSpacing: 1.5 },
 
   destList:     { paddingVertical: spacing.lg },
-  destGrid:     { paddingHorizontal: spacing.lg, gap: spacing.sm },
+  destGrid:     { gap: spacing.sm },
   destCard:     { backgroundColor: colors.surface[900], borderRadius: radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: colors.surface[800], marginBottom: spacing.sm },
   destCardAccentBar: { height: 4, backgroundColor: colors.brand[500] },
   destCardInner:{ flexDirection: 'row', padding: spacing.lg, alignItems: 'center' },

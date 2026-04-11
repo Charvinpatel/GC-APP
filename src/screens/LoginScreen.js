@@ -161,7 +161,7 @@ export default function LoginScreen() {
               style={styles.input}
             />
 
-            <View style={{ position: 'relative' }}>
+            <View>
               <Input
                 label="Password"
                 icon="lock-closed-outline"
@@ -170,10 +170,12 @@ export default function LoginScreen() {
                 onChangeText={v => setForm({...form, password: v})}
                 secureTextEntry={!showPw}
                 inputStyle={!showPw && form.password ? { letterSpacing: 4 } : {}}
+                rightElement={
+                  <TouchableOpacity onPress={() => setShowPw(!showPw)} style={styles.pwToggle}>
+                    <Ionicons name={showPw ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.surface[500]} />
+                  </TouchableOpacity>
+                }
               />
-              <TouchableOpacity style={styles.pwToggle} onPress={() => setShowPw(!showPw)}>
-                <Ionicons name={showPw ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.surface[500]} />
-              </TouchableOpacity>
             </View>
 
             {isLogin && (
@@ -258,7 +260,7 @@ const styles = StyleSheet.create({
   cardSubtitle: { fontSize: 14, color: colors.surface[400], lineHeight: 20 },
 
   input: { marginBottom: spacing.lg },
-  pwToggle: { position: 'absolute', right: 16, bottom: 18, padding: 4 },
+  pwToggle: { padding: 4, justifyContent: 'center', alignItems: 'center' },
   
   forgotBtn: { alignSelf: 'flex-end', marginTop: -spacing.sm, marginBottom: spacing.lg },
   forgotText: { fontSize: 13, color: colors.brand[400], fontWeight: '600' },

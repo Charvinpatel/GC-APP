@@ -36,13 +36,13 @@ function DriverDashboard({ user }) {
 
   const currentMonthName = dayjs(selectedMonth).format('MMMM YYYY');
 
-  const load = async () => {
+  const load = async (force = false) => {
     try {
       await Promise.all([
         fetchDriverTrips({ date: selectedMonth }), 
-        vehicles.length  === 0 ? fetchVehicles({ limit: 200 })  : Promise.resolve(),
-        soilTypes.length === 0 ? fetchSoilTypes()               : Promise.resolve(),
-        locations.length === 0 ? fetchLocations({ limit: 500 }) : Promise.resolve(),
+        vehicles.length  === 0 || force ? fetchVehicles({ limit: 200 })  : Promise.resolve(),
+        soilTypes.length === 0 || force ? fetchSoilTypes()               : Promise.resolve(),
+        locations.length === 0 || force ? fetchLocations({ limit: 500 }) : Promise.resolve(),
       ]);
     } catch {}
     setLoading(false);
@@ -52,7 +52,7 @@ function DriverDashboard({ user }) {
   useEffect(() => { load(); }, [selectedMonth]);
   useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
 
-  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+  const onRefresh = async () => { setRefreshing(true); await load(true); setRefreshing(false); };
 
   const monthlyTrips = useMemo(() => 
     driverTrips.filter(t => t.date && t.date.startsWith(selectedMonth) && (t.driverId === myId || t.driver?._id === myId || t.driver?.id === myId))
@@ -176,8 +176,8 @@ function DriverDashboard({ user }) {
 // ── ADMIN DASHBOARD ─────────────────────────────
 function AdminDashboard({ user, navigation }) {
   const {
-    trips, diesel, drivers, vehicles, soilTypes, driverTrips,
-    fetchTrips, fetchDiesel, fetchDrivers, fetchVehicles, fetchDriverTrips,
+    diesel, drivers, vehicles, soilTypes, driverTrips, locations,
+    fetchDiesel, fetchDrivers, fetchVehicles, fetchDriverTrips, fetchLocations, fetchSoilTypes
   } = useStore();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -216,11 +216,12 @@ function AdminDashboard({ user, navigation }) {
   const load = async () => {
     try {
       await Promise.all([
-        fetchTrips({ limit: 1000 }),
         fetchDiesel({ limit: 1000 }),
         fetchDrivers({ limit: 100 }),
         fetchVehicles({ limit: 100 }),
-        fetchDriverTrips({}),
+        fetchLocations({ limit: 500 }),
+        fetchSoilTypes(),
+        fetchDriverTrips({ limit: 1000 }),
       ]);
     } catch {}
   };
@@ -232,76 +233,89 @@ function AdminDashboard({ user, navigation }) {
 
   const pendingCount = useMemo(() => driverTrips.filter(dt => dt.status === 'pending').length, [driverTrips]);
 
+  const getMetrics = (tripList) => {
+    return tripList.reduce((acc, t) => {
+      const destBase = (t.destination || '').split('|PRICE:')[0].trim();
+      const destLoc = locations.find(l => (l.name || '').split('|PRICE:')[0].trim() === destBase);
+      let locSellPrice = 0;
+      if (destLoc && destLoc.name && destLoc.name.includes('|PRICE:')) {
+         locSellPrice = Number(destLoc.name.split('|PRICE:')[1].trim());
+      } else if (destLoc?.price) {
+         locSellPrice = Number(destLoc.price);
+      }
+      
+      const buyP  = Number(t.soilType?.buyPrice) || Number(t.buyPrice) || 0;
+      const sellP = locSellPrice || Number(t.sellPrice) || Number(t.soilType?.sellPrice) || 0;
+      const tCount = Number(t.trips) || 1;
+      
+      acc.revenue += sellP * tCount;
+      acc.profit += (sellP - buyP) * tCount;
+      acc.count += tCount;
+      return acc;
+    }, { revenue: 0, profit: 0, count: 0 });
+  };
+
   const todayStats = useMemo(() => {
-    const t = trips.filter(x  => x.date === today);
+    const t = driverTrips.filter(x  => x.date === today);
     const d = diesel.filter(x => x.date === today);
-    return {
-      revenue: t.reduce((s, x) => s + getTripRevenue(x), 0),
-      profit:  t.reduce((s, x) => s + getTripProfit(x), 0),
-      diesel:  d.reduce((s, x) => s + (x.amount || 0), 0),
-      count:   t.reduce((s, x) => s + x.trips, 0),
-    };
-  }, [trips, diesel, today]);
+    const metrics = getMetrics(t);
+    return { ...metrics, diesel: d.reduce((s, x) => s + (x.amount || 0), 0) };
+  }, [driverTrips, diesel, today, locations]);
 
   const monthlyStats = useMemo(() => {
     const month = dayjs(selectedDate).format('YYYY-MM');
-    const t = trips.filter(x  => x.date && x.date.startsWith(month));
+    const t = driverTrips.filter(x  => x.date && x.date.startsWith(month));
     const d = diesel.filter(x => x.date && x.date.startsWith(month));
-    return {
-      revenue: t.reduce((s, x) => s + getTripRevenue(x), 0),
-      profit:  t.reduce((s, x) => s + getTripProfit(x), 0),
-      diesel:  d.reduce((s, x) => s + (x.amount || 0), 0),
-      count:   t.reduce((s, x) => s + x.trips, 0),
-    };
-  }, [trips, diesel, selectedDate]);
+    const metrics = getMetrics(t);
+    return { ...metrics, diesel: d.reduce((s, x) => s + (x.amount || 0), 0) };
+  }, [driverTrips, diesel, selectedDate, locations]);
 
   const yearlyStats = useMemo(() => {
     const year = dayjs(selectedDate).format('YYYY');
-    const t = trips.filter(x  => x.date && x.date.startsWith(year));
+    const t = driverTrips.filter(x  => x.date && x.date.startsWith(year));
     const d = diesel.filter(x => x.date && x.date.startsWith(year));
-    return {
-      revenue: t.reduce((s, x) => s + getTripRevenue(x), 0),
-      profit:  t.reduce((s, x) => s + getTripProfit(x), 0),
-      diesel:  d.reduce((s, x) => s + (x.amount || 0), 0),
-      count:   t.reduce((s, x) => s + x.trips, 0),
-    };
-  }, [trips, diesel, selectedDate]);
+    const metrics = getMetrics(t);
+    return { ...metrics, diesel: d.reduce((s, x) => s + (x.amount || 0), 0) };
+  }, [driverTrips, diesel, selectedDate, locations]);
 
   const displayStats = perfView === 'day' ? todayStats : perfView === 'month' ? monthlyStats : yearlyStats;
 
   const chartData = useMemo(() => {
     if (chartView === '30d') {
       return last30.map(date => {
-        const dt = trips.filter(t => t.date === date);
+        const dt = driverTrips.filter(t => t.date === date);
         const dd = diesel.filter(d => d.date === date);
+        const { profit } = getMetrics(dt);
         return {
           label: dayjs(date).format('DD'),
-          profit: dt.reduce((s, t) => s + getTripProfit(t), 0),
+          profit,
           diesel: dd.reduce((s, d) => s + (d.amount || 0), 0),
         };
       });
     }
     if (chartView === '1y') {
       return last12Months.map(month => {
-        const dt = trips.filter(t => t.date && t.date.startsWith(month));
+        const dt = driverTrips.filter(t => t.date && t.date.startsWith(month));
         const dd = diesel.filter(d => d.date && d.date.startsWith(month));
+        const { profit } = getMetrics(dt);
         return {
           label: dayjs(month).format('MMM'),
-          profit: dt.reduce((s, t) => s + getTripProfit(t), 0),
+          profit,
           diesel: dd.reduce((s, d) => s + (d.amount || 0), 0),
         };
       });
     }
     return last7.map(date => {
-      const dt = trips.filter(t => t.date === date);
+      const dt = driverTrips.filter(t => t.date === date);
       const dd = diesel.filter(d => d.date === date);
+      const { profit } = getMetrics(dt);
       return {
         label: dayjs(date).format('ddd'),
-        profit: dt.reduce((s, t) => s + getTripProfit(t), 0),
+        profit,
         diesel: dd.reduce((s, d) => s + (d.amount || 0), 0),
       };
     });
-  }, [trips, diesel, chartView, last7, last30, last12Months]);
+  }, [driverTrips, diesel, chartView, last7, last30, last12Months, locations]);
 
   const maxProfit = Math.max(...chartData.map(d => d.profit), 1000);
   const maxDiesel = Math.max(...chartData.map(d => d.diesel), 1000);

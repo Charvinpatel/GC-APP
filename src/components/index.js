@@ -95,7 +95,7 @@ export function Button({ title, onPress, loading, variant = 'primary', style, ic
 }
 
 // ── Input ─────────────────────────────────────────────────────────────────────
-export function Input({ label, error, icon, style, inputStyle, ...props }) {
+export function Input({ label, error, icon, style, inputStyle, rightElement, ...props }) {
   const [isFocused, setIsFocused] = React.useState(false);
 
   return (
@@ -114,6 +114,7 @@ export function Input({ label, error, icon, style, inputStyle, ...props }) {
           onBlur={() => setIsFocused(false)}
           {...props}
         />
+        {rightElement && rightElement}
       </View>
       {error && <Text style={styles.inputError}>{error}</Text>}
     </View>

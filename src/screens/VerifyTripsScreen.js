@@ -47,27 +47,30 @@ export default function VerifyTripsScreen() {
   const [matchingTripId, setMatchingTripId] = useState('');
   const [verifyNote, setVerifyNote]     = useState('');
   const [activeTab, setActiveTab]       = useState('all');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingTrip, setEditingTrip]   = useState(null);
+  const [editForm, setEditForm]         = useState({});
   const [filters, setFilters]           = useState({
     driverId: '', vehicleId: '', soilTypeId: '', destination: '', date: null
   });
 
   const hasFilters = filters.driverId || filters.vehicleId || filters.soilTypeId || filters.destination || filters.date;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     try {
       await Promise.all([
         fetchDriverTrips({}),
-        drivers.length   === 0 ? fetchDrivers({ limit: 500 })   : Promise.resolve(),
-        vehicles.length  === 0 ? fetchVehicles({ limit: 500 })  : Promise.resolve(),
-        soilTypes.length === 0 ? fetchSoilTypes()               : Promise.resolve(),
-        locations.length === 0 ? fetchLocations({ limit: 1000 }) : Promise.resolve(),
-        trips.length     === 0 ? fetchTrips({ limit: 2000 })    : Promise.resolve(),
+        drivers.length   === 0 || force ? fetchDrivers({ limit: 500 })   : Promise.resolve(),
+        vehicles.length  === 0 || force ? fetchVehicles({ limit: 500 })  : Promise.resolve(),
+        soilTypes.length === 0 || force ? fetchSoilTypes()               : Promise.resolve(),
+        locations.length === 0 || force ? fetchLocations({ limit: 1000 }) : Promise.resolve(),
+        trips.length     === 0 || force ? fetchTrips({ limit: 2000 })    : Promise.resolve(),
       ]);
     } catch (e) {
       console.error(e);
     }
     setLoading(false);
-  }, [fetchDriverTrips, fetchDrivers, fetchVehicles, fetchSoilTypes, fetchLocations, fetchTrips]);
+  }, [fetchDriverTrips, fetchDrivers, fetchVehicles, fetchSoilTypes, fetchLocations, fetchTrips, drivers.length, vehicles.length, soilTypes.length, locations.length, trips.length]);
 
   const refreshTrigger = useStore(s => s.refreshTrigger);
   useEffect(() => { load(); }, [load]);
@@ -75,7 +78,7 @@ export default function VerifyTripsScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await load();
+    await load(true);
     setRefreshing(false);
   };
 
@@ -134,9 +137,15 @@ export default function VerifyTripsScreen() {
       g.allTrips.push(t);
       g.totalRounds += (Number(t.trips) || 1);
       
-      const rKey = `${t.source || 'Mine'} → ${t.destination || 'Site'}`;
+      const matName = t.soilType?.name || 'Material';
+      const rKey = `${t.source || 'Mine'} → ${(t.destination || 'Site').split('|PRICE:')[0].trim()} [${matName}]`;
       if (!g.routeSummary[rKey]) {
-        g.routeSummary[rKey] = { source: t.source, destination: t.destination, trips: 0, soilType: t.soilType?.name };
+        g.routeSummary[rKey] = { 
+          source: t.source, 
+          destination: (t.destination || 'Site').split('|PRICE:')[0].trim(), 
+          trips: 0, 
+          soilType: matName 
+        };
       }
       g.routeSummary[rKey].trips += (Number(t.trips) || 1);
     });
@@ -181,6 +190,41 @@ export default function VerifyTripsScreen() {
     }
   };
 
+  const openEditTrip = (trip) => {
+    setEditingTrip(trip);
+    setEditForm({
+      driverId:   trip.driverId   || trip.driver?.id  || '',
+      vehicleId:  trip.vehicleId  || trip.vehicle?.id || '',
+      soilTypeId: trip.soilTypeId || trip.soilType?.id || '',
+      source:      trip.source      || '',
+      destination: trip.destination || '',
+      trips:       String(trip.trips || 1),
+      notes:       trip.notes || '',
+      date:        trip.date ? new Date(trip.date) : new Date(),
+    });
+    setShowEditModal(true);
+  };
+
+  const saveEditTrip = async () => {
+    if (!editingTrip) return;
+    setSaving(true);
+    try {
+      await updateDriverTrip(editingTrip.id, {
+        ...editForm,
+        date:  dayjs(editForm.date).format('YYYY-MM-DD'),
+        trips: Number(editForm.trips) || 1,
+      });
+      Toast.show({ type: 'success', text1: 'Updated', text2: 'Trip record updated successfully' });
+      setShowEditModal(false);
+      setEditingTrip(null);
+      load();
+    } catch (e) {
+      Toast.show({ type: 'error', text1: 'Error', text2: e.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveDriverTrip = async () => {
     const submitData = { ...form };
     submitData.date = dayjs(form.date).format('YYYY-MM-DD');
@@ -210,8 +254,20 @@ export default function VerifyTripsScreen() {
   const driverOpts  = drivers.map(d   => ({ label: d.name,   value: d.id }));
   const vehicleOpts = vehicles.map(v  => ({ label: v.number, value: v.id }));
   const soilOpts    = soilTypes.map(s => ({ label: s.name,   value: s.id }));
-  const sourceOpts  = locations.map(l => ({ label: l.name, value: l.name }));
-  const destOpts    = locations.map(l => ({ label: l.name, value: l.name }));
+  const sourceOpts  = locations.map(l => {
+    const cleanName = (l.name || '').split('|PRICE:')[0].trim();
+    return { 
+      label: cleanName, 
+      value: l.name 
+    };
+  });
+  const destOpts    = locations.map(l => {
+    const cleanName = (l.name || '').split('|PRICE:')[0].trim();
+    return { 
+      label: cleanName, 
+      value: l.name 
+    };
+  });
 
   const potentialMatches = useMemo(() => {
     if (!selectedGroup) return [];
@@ -301,11 +357,14 @@ export default function VerifyTripsScreen() {
 
                 <View style={styles.cardContent}>
                    <View style={styles.routeSummaryList}>
-                      {Object.entries(g.routeSummary).map(([key, r], idx) => (
-                        <View key={idx} style={styles.routeSummaryItem}>
+                      {Object.values(g.routeSummary).map((r, idx) => (
+                        <View key={idx} style={[styles.routeSummaryItem, { marginBottom: 6 }]}>
                            <View style={styles.routeHeader}>
                               <Ionicons name="location-outline" size={12} color={colors.brand[400]} />
-                              <Text style={styles.routeSummaryText}>{r.source || 'MINE'} → {r.destination || 'SITE'}</Text>
+                              <View style={{ flex: 1, paddingRight: 8 }}>
+                                <Text style={styles.routeSummaryText}>{r.source || 'MINE'} → {r.destination || 'SITE'}</Text>
+                                <Text style={{ fontSize: 9, color: colors.surface[500], fontWeight: '800', textTransform: 'uppercase', marginTop: 1 }}>{r.soilType}</Text>
+                              </View>
                            </View>
                            <View style={styles.routeBadge}>
                               <Text style={styles.routeBadgeText}>{r.trips} trips</Text>
@@ -399,7 +458,7 @@ export default function VerifyTripsScreen() {
           </View>
 
           <Input label="Number of Trips" keyboardType="numeric" value={form.trips} onChangeText={v => setForm(f => ({ ...f, trips: v }))} />
-          <Input label="Notes" value={form.notes} onChangeText={v => setForm(f => ({ ...f, notes: v }))} placeholder="Optional notes..." multiline />
+
           
           <Button title="Submit Submission" onPress={saveDriverTrip} loading={saving} icon="cloud-upload" glow style={{ marginTop: 20 }} />
         </View>
@@ -428,9 +487,19 @@ export default function VerifyTripsScreen() {
                     <View key={i} style={styles.historyItem}>
                        <View style={styles.historyHeader}>
                           <Text style={styles.historyTime}>{dayjs(t.createdAt).format('hh:mm A')}</Text>
-                          <Text style={styles.historyTrips}>{t.trips} Trips</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Text style={styles.historyTrips}>{t.trips} Trips</Text>
+                            {isAdmin && t.status !== 'verified' && (
+                              <TouchableOpacity
+                                onPress={() => openEditTrip(t)}
+                                style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: colors.brand[500] + '20', alignItems: 'center', justifyContent: 'center' }}
+                              >
+                                <Ionicons name="create-outline" size={14} color={colors.brand[400]} />
+                              </TouchableOpacity>
+                            )}
+                          </View>
                        </View>
-                       <Text style={styles.historyRoute}>{t.source} → {t.destination}</Text>
+                       <Text style={styles.historyRoute}>{t.source} → {(t.destination || '').split('|PRICE:')[0].trim()}</Text>
                        {t.notes ? <Text style={styles.historyNotes}>"{t.notes}"</Text> : null}
                     </View>
                   ))}
@@ -439,33 +508,6 @@ export default function VerifyTripsScreen() {
 
             {isAdmin && selectedGroup.status === 'pending' && (
               <>
-                <View style={styles.matchingSection}>
-                  <Text style={styles.matchingLabel}>LINK TO SYSTEM TRIP</Text>
-                  {potentialMatches.length > 0 ? (
-                    <View style={{ gap: 8, marginTop: 10 }}>
-                      {potentialMatches.map(m => (
-                        <TouchableOpacity
-                          key={m.id}
-                          style={[styles.matchCard, matchingTripId === m.id && styles.matchCardActive]}
-                          onPress={() => setMatchingTripId(prev => prev === m.id ? '' : m.id)}
-                        >
-                          <Ionicons name={matchingTripId === m.id ? "radio-button-on" : "radio-button-off"} size={18} color={matchingTripId === m.id ? colors.brand[400] : colors.surface[700]} />
-                          <View style={{ flex: 1, marginLeft: 12 }}>
-                            <Text style={styles.matchTitle}>TRIP ID: #{m.id.slice(-6).toUpperCase()}</Text>
-                            <Text style={styles.matchSubText}>{m.trips} Trips · {m.destination || 'Site'}</Text>
-                          </View>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  ) : (
-                    <View style={styles.noMatchBox}>
-                       <Text style={styles.noMatchText}>No matching system trips found for this date.</Text>
-                    </View>
-                  )}
-                </View>
-
-                <Input label="Verification Comments" value={verifyNote} onChangeText={setVerifyNote} placeholder="Add instructions or notes..." multiline />
-
                 <View style={styles.verifyActions}>
                   <Button title="Approve" onPress={() => handleVerify('verified')} loading={saving} icon="checkmark-circle" style={{ flex: 1, backgroundColor: colors.green }} glow />
                   <Button title="Reject" variant="danger" onPress={() => handleVerify('rejected')} loading={saving} icon="close-circle" style={{ width: 110 }} />
@@ -475,6 +517,40 @@ export default function VerifyTripsScreen() {
           </View>
         )}
       </BottomModal>
+
+      {/* 4. Edit Individual Trip Modal */}
+      <BottomModal visible={showEditModal} onClose={() => setShowEditModal(false)} title="EDIT TRIP ENTRY">
+        <View style={styles.modalContent}>
+          {isAdmin && (
+            <SelectPicker label="Driver" value={editForm.driverId} options={driverOpts} onChange={v => setEditForm(f => ({ ...f, driverId: v }))} />
+          )}
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <View style={{ flex: 1 }}>
+              <SelectPicker label="Vehicle" value={editForm.vehicleId} options={vehicleOpts} onChange={v => setEditForm(f => ({ ...f, vehicleId: v }))} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <SelectPicker label="Material" value={editForm.soilTypeId} options={soilOpts} onChange={v => setEditForm(f => ({ ...f, soilTypeId: v }))} />
+            </View>
+          </View>
+
+          <DatePicker label="Work Date" date={editForm.date} onConfirm={d => setEditForm(f => ({ ...f, date: d }))} />
+
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <View style={{ flex: 1 }}>
+              <SelectPicker label="Source" value={editForm.source} options={sourceOpts} onChange={v => setEditForm(f => ({ ...f, source: v }))} placeholder="Select Source" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <SelectPicker label="Destination" value={editForm.destination} options={destOpts} onChange={v => setEditForm(f => ({ ...f, destination: v }))} placeholder="Select Destination" />
+            </View>
+          </View>
+
+          <Input label="Number of Trips" keyboardType="numeric" value={editForm.trips} onChangeText={v => setEditForm(f => ({ ...f, trips: v }))} />
+
+
+          <Button title="Save Changes" onPress={saveEditTrip} loading={saving} icon="checkmark-circle-outline" glow style={{ marginTop: 20 }} />
+        </View>
+      </BottomModal>
+      
     </View>
   );
 }

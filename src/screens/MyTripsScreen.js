@@ -57,8 +57,17 @@ export default function MyTripsScreen() {
 
   const vehicleOpts  = vehicles.map(v  => ({ label: `${v.number} (${v.type || 'Truck'})`, value: v.id }));
   const soilOpts     = soilTypes.map(s => ({ label: s.name, value: s.id }));
-  const sourceOpts   = locations.filter(l => l.type === 'source').map(l      => ({ label: l.name, value: l.name }));
-  const destOpts     = locations.filter(l => l.type === 'destination').map(l => ({ label: l.name, value: l.name }));
+  const sourceOpts   = locations.filter(l => l.type === 'source').map(l => {
+    const cleanName = (l.name || '').split('|PRICE:')[0].trim();
+    return { 
+      label: cleanName, 
+      value: l.name 
+    };
+  });
+  const destOpts     = locations.filter(l => l.type === 'destination').map(l => ({ 
+    label: (l.name || '').split('|PRICE:')[0].trim(), 
+    value: l.name 
+  }));
 
   const save = async () => {
     if (!form.vehicleId)   { Alert.alert('Error', 'Please select a vehicle'); return; }
@@ -184,7 +193,7 @@ export default function MyTripsScreen() {
                     <Ionicons name="location" size={13} color={colors.brand[500]} />
                     <Text style={styles.routeText}>{t.source || 'MINE'}</Text>
                     <Text style={styles.routeArrow}>→</Text>
-                    <Text style={styles.routeText}>{t.destination || 'SITE'}</Text>
+                    <Text style={styles.routeText}>{(t.destination || 'SITE').split('|PRICE:')[0].trim()}</Text>
                   </View>
                 </View>
               </View>
@@ -249,13 +258,7 @@ export default function MyTripsScreen() {
           </View>
         </View>
 
-        <Input
-          label="Operational Notes (Optional)"
-          value={form.notes}
-          onChangeText={v => setForm(f => ({ ...f, notes: v }))}
-          placeholder="e.g. Breakdown, Delay at site..."
-          multiline
-        />
+
 
         <TouchableOpacity
           style={[styles.saveBtn, saving && { opacity: 0.6 }]}

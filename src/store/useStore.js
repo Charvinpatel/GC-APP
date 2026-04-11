@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import api, { setToken, clearToken, getToken } from '../utils/api';
-import { mapId, mapTrip, mapDiesel, mapVehicle, mapDriverTrip, mapUpad } from '../utils/helpers';
+import { mapId, mapTrip, mapDiesel, mapVehicle, mapDriverTrip, mapUpad, mapLocation } from '../utils/helpers';
 
 export const useStore = create((set, get) => ({
   // ── Auth State ──────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ export const useStore = create((set, get) => ({
 
       set({
         soilTypes: soils.map(mapId),
-        locations: (locs.data || locs).map(mapId),
+        locations: (locs.data || locs).map(mapLocation),
         locationsMeta: { total: locs.total || locs.length, page: locs.page || 1, totalPages: locs.totalPages || 1 },
         // Pre-set dashboard stats if admin
         tripsSummary: dash?.stats || { revenue: 0, profit: 0, trips: 0 },
@@ -242,10 +242,28 @@ export const useStore = create((set, get) => ({
     set(s => ({ driverTrips: [mapDriverTrip(res), ...s.driverTrips] }));
     return res;
   },
-  verifyDriverTrip: async (id, data) => {
-    const res = await api.driverTrips.verify(id, data);
+  updateDriverTrip: async (id, data) => {
+    const payload = {
+      ...data,
+      driver:    data.driverId   || data.driver,
+      vehicle:   data.vehicleId  || data.vehicle,
+      soilType:  data.soilTypeId || data.soilType,
+    };
+    const res = await api.driverTrips.update(id, payload);
     set(s => ({ driverTrips: s.driverTrips.map(dt => dt.id === id ? mapDriverTrip(res) : dt) }));
-    await get().fetchTrips({ limit: 1000 });
+    await get().fetchDriverTrips({ limit: 1000 });
+    return res;
+  },
+  verifyDriverTrip: async (id, data) => {
+    const payload = {
+      ...data,
+      driver:    data.driverId   || data.driver,
+      vehicle:   data.vehicleId  || data.vehicle,
+      soilType:  data.soilTypeId || data.soilType,
+    };
+    const res = await api.driverTrips.verify(id, payload);
+    set(s => ({ driverTrips: s.driverTrips.map(dt => dt.id === id ? mapDriverTrip(res) : dt) }));
+    await get().fetchDriverTrips({ limit: 1000 });
     return res;
   },
   deleteDriverTrip: async (id) => {
@@ -297,11 +315,11 @@ export const useStore = create((set, get) => ({
   // ── Locations ────────────────────────────────────────────────────────────────
   fetchLocations: async (params) => {
     const res = await api.locations.getAll(params);
-    set({ locations: (res.data || res).map(mapId), locationsMeta: { total: res.total || res.length, page: res.page || 1, totalPages: res.totalPages || 1 } });
+    set({ locations: (res.data || res).map(mapLocation), locationsMeta: { total: res.total || res.length, page: res.page || 1, totalPages: res.totalPages || 1 } });
   },
   addLocation: async (data) => {
     const res = await api.locations.create(data);
-    set(s => ({ locations: [mapId(res), ...s.locations] }));
+    set(s => ({ locations: [mapLocation(res), ...s.locations] }));
     return res;
   },
   deleteLocation: async (id) => {
@@ -310,7 +328,7 @@ export const useStore = create((set, get) => ({
   },
   updateLocation: async (id, data) => {
     const res = await api.locations.update(id, data);
-    set(s => ({ locations: s.locations.map(l => l.id === id ? mapId(res) : l) }));
+    set(s => ({ locations: s.locations.map(l => l.id === id ? mapLocation(res) : l) }));
     return res;
   },
 }));

@@ -31,6 +31,7 @@ export default function LocationsScreen() {
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving]       = useState(false);
   const [form, setForm]           = useState(EMPTY_FORM);
+  const [editing, setEditing]     = useState(null);
   const [typeFilter, setTypeFilter] = useState('');
   const [search, setSearch]       = useState('');
 
@@ -50,18 +51,39 @@ export default function LocationsScreen() {
   };
 
   const openAdd = () => {
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, price: '' });
+    setEditing(null);
+    setShowModal(true);
+  };
+
+  const openEdit = (loc) => {
+    setEditing(loc);
+    setForm({
+      name: loc.displayName,
+      type: loc.type,
+      price: loc.price || ''
+    });
     setShowModal(true);
   };
 
   const save = async () => {
     if (!form.name.trim()) { 
       Alert.alert('Error', 'Location name is required'); 
-      return; 
+      return;
     }
     setSaving(true);
     try {
-      await addLocation(form);
+      const locationData = {
+        name: form.price ? `${form.name} |PRICE:${form.price}` : form.name,
+        type: form.type
+      };
+      
+      if (editing) {
+        await deleteLocation(editing.id);
+        await addLocation(locationData);
+      } else {
+        await addLocation(locationData);
+      }
       setShowModal(false);
       setForm(EMPTY_FORM);
     } catch (e) {
@@ -78,9 +100,14 @@ export default function LocationsScreen() {
 
   const FILTER_OPTS = [{ label: 'All', value: '' }, ...TYPE_OPTS];
 
-  const filtered = locations.filter(l => {
+  const processedLocations = locations.map(l => {
+    const parts = l.name.split('|PRICE:');
+    return { ...l, displayName: parts[0], price: parts[1] || null };
+  });
+
+  const filtered = processedLocations.filter(l => {
     const matchType = !typeFilter || l.type === typeFilter || l.type === 'both';
-    const matchSearch = !search || l.name?.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !search || l.displayName?.toLowerCase().includes(search.toLowerCase());
     return matchType && matchSearch;
   });
 
@@ -94,11 +121,22 @@ export default function LocationsScreen() {
             <Ionicons name="location" size={18} color={typeColor} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.locName}>{loc.name}</Text>
-            <Badge label={loc.type} color={typeColor} />
+            <Text style={styles.locName}>{loc.displayName}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+               <Badge label={loc.type} color={typeColor} />
+               {Boolean(loc.price) && (
+                 <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.green + '15', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100, borderWidth: 1, borderColor: colors.green + '30', gap: 4 }}>
+                   <Ionicons name="cash-outline" size={12} color={colors.green} />
+                   <Text style={{ fontSize: 11, fontWeight: '800', color: colors.green }}>₹{loc.price}</Text>
+                 </View>
+               )}
+            </View>
           </View>
           
           <View style={styles.actions}>
+            <TouchableOpacity onPress={() => openEdit(loc)} style={[styles.iconBtn, { backgroundColor: colors.brand[500] + '12', marginRight: spacing.sm }]}>
+              <Ionicons name="create-outline" size={16} color={colors.brand[400]} />
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => confirmDelete(loc)} style={[styles.iconBtn, { backgroundColor: colors.red + '12' }]}>
               <Ionicons name="trash-outline" size={16} color={colors.red} />
             </TouchableOpacity>
@@ -162,7 +200,7 @@ export default function LocationsScreen() {
       <BottomModal 
         visible={showModal} 
         onClose={() => setShowModal(false)} 
-        title="Add Location"
+        title={editing ? "Edit Location" : "Add Location"}
       >
         <Input 
           label="Location Name *" 
@@ -177,11 +215,24 @@ export default function LocationsScreen() {
           options={TYPE_OPTS} 
           onChange={v => setForm(f => ({ ...f, type: v }))} 
         />
+        
+        {(form.type === 'destination' || form.type === 'both') && (
+           <Input 
+              label="Selling Price (Per Trip) *" 
+              icon="cash-outline" 
+              keyboardType="numeric"
+              placeholder="₹0"
+              value={form.price} 
+              onChangeText={v => setForm(f => ({ ...f, price: v }))} 
+           />
+        )}
+
         <Button 
-          title="Add Location" 
+          title={editing ? "Update Location" : "Add Location"} 
           onPress={save} 
           loading={saving} 
           icon="checkmark-circle-outline" 
+          style={{ marginTop: spacing.md }}
         />
       </BottomModal>
     </View>
