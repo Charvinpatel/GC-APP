@@ -264,7 +264,7 @@ export default function TripsScreen() {
         </View>
         <View style={{ flexDirection: 'row', gap: 6 }}>
           <TouchableOpacity onPress={() => openEdit(g)} style={styles.iconBtn}>
-            <Ionicons name="pencil-outline" size={16} color={colors.surface[400]} />
+            <Ionicons name="create-outline" size={16} color={colors.surface[400]} />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => confirmDelete(g)} style={[styles.iconBtn, { backgroundColor: colors.red + '18' }]}>
             <Ionicons name="trash-outline" size={16} color={colors.red} />

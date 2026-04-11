@@ -59,6 +59,12 @@ export const mapDriverTrip = (t) => ({
   soilTypeId: t.soilType && typeof t.soilType === 'object' ? t.soilType._id : t.soilType,
 });
 
+export const mapUpad = (u) => ({
+  ...u,
+  id: u._id || u.id,
+  driverId: typeof u.driver === 'object' && u.driver ? u.driver._id : u.driver,
+});
+
 export const getStatusColor = (status) => {
   switch (status) {
     case 'active':   return '#22c55e';

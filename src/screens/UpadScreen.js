@@ -12,7 +12,7 @@ import { colors, spacing, radius } from '../utils/theme';
 import { formatCurrency, formatDateShort } from '../utils/helpers';
 
 export default function UpadScreen() {
-  const { upad, drivers, addUpad, deleteUpad, fetchDrivers } = useStore();
+  const { upad, drivers, addUpad, deleteUpad, fetchDrivers, fetchUpad } = useStore();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -33,9 +33,15 @@ export default function UpadScreen() {
 
   const load = async () => {
     try {
-      if (drivers.length === 0) await fetchDrivers({ limit: 200 });
-    } catch {}
-    setLoading(false);
+      await Promise.all([
+        fetchUpad({ limit: 1000 }),
+        drivers.length === 0 ? fetchDrivers({ limit: 200 }) : Promise.resolve()
+      ]);
+    } catch (e) {
+      console.error('Failed to load Upad data:', e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const refreshTrigger = useStore(s => s.refreshTrigger);

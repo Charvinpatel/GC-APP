@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import api, { setToken, clearToken, getToken } from '../utils/api';
-import { mapId, mapTrip, mapDiesel, mapVehicle, mapDriverTrip } from '../utils/helpers';
+import { mapId, mapTrip, mapDiesel, mapVehicle, mapDriverTrip, mapUpad } from '../utils/helpers';
 
 export const useStore = create((set, get) => ({
   // ── Auth State ──────────────────────────────────────────────────────────────
@@ -273,10 +273,20 @@ export const useStore = create((set, get) => ({
     set(s => ({ bills: s.bills.filter(b => b.id !== id) }));
   },
 
-  // ── Upad ─────────────────────────────────────────────────────────────────────
+  fetchUpad: async (filters = {}) => {
+    set({ contentLoading: true });
+    try {
+      const res = await api.upad.getAll(filters);
+      const data = res.data || res;
+      set({ 
+        upad: Array.isArray(data) ? data.map(mapUpad) : [], 
+        contentLoading: false 
+      });
+    } catch (e) { set({ contentLoading: false }); throw e; }
+  },
   addUpad: async (data) => {
     const res = await api.upad.create(data);
-    set(s => ({ upad: [mapId(res), ...s.upad] }));
+    set(s => ({ upad: [mapUpad(res), ...s.upad] }));
     return res;
   },
   deleteUpad: async (id) => {

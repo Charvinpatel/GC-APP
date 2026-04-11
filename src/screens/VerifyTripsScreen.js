@@ -112,27 +112,33 @@ export default function VerifyTripsScreen() {
       if (!dates[d]) dates[d] = {};
 
       const vId = t.vehicleId || 'unknown';
-      const locKey = `${t.source || 'Mine'} → ${t.destination || 'Site'}`;
       const status = t.status;
-      const groupKey = `${vId}_${locKey}_${status}`; 
+      const groupKey = `${vId}_${status}`; 
 
       if (!dates[d][groupKey]) {
         dates[d][groupKey] = {
            id: groupKey,
+           vehicleId: vId,
            vehicle: t.vehicle,
            driver: t.driver,
-           source: t.source,
-           destination: t.destination,
-           soilType: t.soilType,
            status: t.status,
            date: t.date,
            totalRounds: 0,
            createdAt: t.createdAt,
-           allTrips: []
+           allTrips: [],
+           routeSummary: {}
         };
       }
-      dates[d][groupKey].allTrips.push(t);
-      dates[d][groupKey].totalRounds += (Number(t.trips) || 1);
+      
+      const g = dates[d][groupKey];
+      g.allTrips.push(t);
+      g.totalRounds += (Number(t.trips) || 1);
+      
+      const rKey = `${t.source || 'Mine'} → ${t.destination || 'Site'}`;
+      if (!g.routeSummary[rKey]) {
+        g.routeSummary[rKey] = { source: t.source, destination: t.destination, trips: 0, soilType: t.soilType?.name };
+      }
+      g.routeSummary[rKey].trips += (Number(t.trips) || 1);
     });
 
     return Object.entries(dates).map(([date, groups]) => ({
@@ -273,7 +279,7 @@ export default function VerifyTripsScreen() {
               <GlassCard 
                 key={g.id} 
                 style={styles.tripCard}
-                onPress={() => isAdmin && g.status === 'pending' ? (setSelectedGroup(g), setShowVerifyModal(true)) : null}
+                onPress={() => { setSelectedGroup(g); setShowVerifyModal(true); }}
               >
                 <View style={styles.cardHeader}>
                   <View style={styles.driverSection}>
@@ -294,33 +300,30 @@ export default function VerifyTripsScreen() {
                 </View>
 
                 <View style={styles.cardContent}>
-                  <View style={styles.contentRow}>
-                    <View style={styles.metricItem}>
-                      <Text style={styles.metricLabel}>TOTAL ROUNDS</Text>
-                      <Text style={[styles.metricValue, { color: colors.brand[400] }]}>{g.totalRounds}</Text>
-                    </View>
-                    <View style={styles.metricItem}>
-                      <Text style={styles.metricLabel}>ENTRIES</Text>
-                      <Text style={styles.metricValue}>{g.allTrips.length}</Text>
-                    </View>
-                    <View style={styles.metricItem}>
-                      <Text style={styles.metricLabel}>MATERIAL</Text>
-                      <Text style={styles.metricValue}>{g.soilType?.name || '—'}</Text>
-                    </View>
-                  </View>
+                   <View style={styles.routeSummaryList}>
+                      {Object.entries(g.routeSummary).map(([key, r], idx) => (
+                        <View key={idx} style={styles.routeSummaryItem}>
+                           <View style={styles.routeHeader}>
+                              <Ionicons name="location-outline" size={12} color={colors.brand[400]} />
+                              <Text style={styles.routeSummaryText}>{r.source || 'MINE'} → {r.destination || 'SITE'}</Text>
+                           </View>
+                           <View style={styles.routeBadge}>
+                              <Text style={styles.routeBadgeText}>{r.trips} trips</Text>
+                           </View>
+                        </View>
+                      ))}
+                   </View>
 
-                  <View style={styles.routeBox}>
-                    <Ionicons name="location-outline" size={14} color={colors.surface[500]} />
-                    <Text style={styles.routeText}>{g.source || 'MINE'}</Text>
-                    <Ionicons name="arrow-forward" size={12} color={colors.surface[700]} style={{ marginHorizontal: 6 }} />
-                    <Text style={styles.routeText}>{g.destination || 'SITE'}</Text>
-                  </View>
-
-                  {g.allTrips.some(t => t.notes) && (
-                    <View style={styles.notesBox}>
-                      <Text style={styles.notesText} numberOfLines={1}>Contains user notes</Text>
-                    </View>
-                  )}
+                   <View style={styles.cardFooterStats}>
+                      <View style={styles.mainTripMetric}>
+                        <Text style={styles.mainMetricLabel}>TOTAL ROUNDS FOR DAY</Text>
+                        <Text style={styles.mainMetricValue}>{g.totalRounds}</Text>
+                      </View>
+                      <View style={styles.subMetricItem}>
+                        <Text style={styles.subMetricLabel}>ENTRIES</Text>
+                        <Text style={styles.subMetricValue}>{g.allTrips.length}</Text>
+                      </View>
+                   </View>
                 </View>
 
                 {isAdmin && g.status === 'pending' && (
@@ -402,49 +405,73 @@ export default function VerifyTripsScreen() {
         </View>
       </BottomModal>
 
-      {/* 3. Verification Modal */}
-      <BottomModal visible={showVerifyModal} onClose={() => setShowVerifyModal(false)} title="VERIFY GROUP RECORDS">
+      {/* 3. Group Details / Verification Modal */}
+      <BottomModal 
+        visible={showVerifyModal} 
+        onClose={() => setShowVerifyModal(false)} 
+        title={isAdmin && selectedGroup?.status === 'pending' ? "VERIFY GROUP RECORDS" : "GROUP DETAILS"}
+      >
         {selectedGroup && (
           <View style={styles.modalContent}>
             <GlassCard style={styles.selectionRecall}>
                <View>
                  <Text style={styles.recallTitle}>{selectedGroup.vehicle?.number}</Text>
-                 <Text style={styles.recallSub}>{selectedGroup.totalRounds} Trips across {selectedGroup.allTrips.length} Entries</Text>
+                 <Text style={styles.recallSub}>{selectedGroup.totalRounds} Trips Total</Text>
                </View>
                <Badge label={dayjs(selectedGroup.date).format('DD MMM')} color={colors.brand[400]} />
             </GlassCard>
 
-            <View style={styles.matchingSection}>
-              <Text style={styles.matchingLabel}>LINK TO SYSTEM TRIP</Text>
-              {potentialMatches.length > 0 ? (
-                <View style={{ gap: 8, marginTop: 10 }}>
-                  {potentialMatches.map(m => (
-                    <TouchableOpacity
-                      key={m.id}
-                      style={[styles.matchCard, matchingTripId === m.id && styles.matchCardActive]}
-                      onPress={() => setMatchingTripId(prev => prev === m.id ? '' : m.id)}
-                    >
-                      <Ionicons name={matchingTripId === m.id ? "radio-button-on" : "radio-button-off"} size={18} color={matchingTripId === m.id ? colors.brand[400] : colors.surface[700]} />
-                      <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={styles.matchTitle}>TRIP ID: #{m.id.slice(-6).toUpperCase()}</Text>
-                        <Text style={styles.matchSubText}>{m.trips} Trips · {m.destination || 'Site'}</Text>
-                      </View>
-                    </TouchableOpacity>
+            <View style={styles.historySection}>
+               <Text style={styles.sectionLabel}>ENTRY HISTORY</Text>
+               <ScrollView style={styles.historyScroll} nestedScrollEnabled>
+                  {selectedGroup.allTrips.map((t, i) => (
+                    <View key={i} style={styles.historyItem}>
+                       <View style={styles.historyHeader}>
+                          <Text style={styles.historyTime}>{dayjs(t.createdAt).format('hh:mm A')}</Text>
+                          <Text style={styles.historyTrips}>{t.trips} Trips</Text>
+                       </View>
+                       <Text style={styles.historyRoute}>{t.source} → {t.destination}</Text>
+                       {t.notes ? <Text style={styles.historyNotes}>"{t.notes}"</Text> : null}
+                    </View>
                   ))}
-                </View>
-              ) : (
-                <View style={styles.noMatchBox}>
-                   <Text style={styles.noMatchText}>No matching system trips found for this date.</Text>
-                </View>
-              )}
+               </ScrollView>
             </View>
 
-            <Input label="Verification Comments" value={verifyNote} onChangeText={setVerifyNote} placeholder="Add instructions or notes..." multiline />
+            {isAdmin && selectedGroup.status === 'pending' && (
+              <>
+                <View style={styles.matchingSection}>
+                  <Text style={styles.matchingLabel}>LINK TO SYSTEM TRIP</Text>
+                  {potentialMatches.length > 0 ? (
+                    <View style={{ gap: 8, marginTop: 10 }}>
+                      {potentialMatches.map(m => (
+                        <TouchableOpacity
+                          key={m.id}
+                          style={[styles.matchCard, matchingTripId === m.id && styles.matchCardActive]}
+                          onPress={() => setMatchingTripId(prev => prev === m.id ? '' : m.id)}
+                        >
+                          <Ionicons name={matchingTripId === m.id ? "radio-button-on" : "radio-button-off"} size={18} color={matchingTripId === m.id ? colors.brand[400] : colors.surface[700]} />
+                          <View style={{ flex: 1, marginLeft: 12 }}>
+                            <Text style={styles.matchTitle}>TRIP ID: #{m.id.slice(-6).toUpperCase()}</Text>
+                            <Text style={styles.matchSubText}>{m.trips} Trips · {m.destination || 'Site'}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : (
+                    <View style={styles.noMatchBox}>
+                       <Text style={styles.noMatchText}>No matching system trips found for this date.</Text>
+                    </View>
+                  )}
+                </View>
 
-            <View style={styles.verifyActions}>
-              <Button title="Approve" onPress={() => handleVerify('verified')} loading={saving} icon="checkmark-circle" style={{ flex: 1, backgroundColor: colors.green }} glow />
-              <Button title="Reject" variant="danger" onPress={() => handleVerify('rejected')} loading={saving} icon="close-circle" style={{ width: 110 }} />
-            </View>
+                <Input label="Verification Comments" value={verifyNote} onChangeText={setVerifyNote} placeholder="Add instructions or notes..." multiline />
+
+                <View style={styles.verifyActions}>
+                  <Button title="Approve" onPress={() => handleVerify('verified')} loading={saving} icon="checkmark-circle" style={{ flex: 1, backgroundColor: colors.green }} glow />
+                  <Button title="Reject" variant="danger" onPress={() => handleVerify('rejected')} loading={saving} icon="close-circle" style={{ width: 110 }} />
+                </View>
+              </>
+            )}
           </View>
         )}
       </BottomModal>
@@ -510,17 +537,47 @@ const styles = StyleSheet.create({
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusText: { fontSize: 9, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 },
 
-  cardContent: { gap: 12 },
-  contentRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  metricItem: { flex: 1 },
-  metricLabel: { fontSize: 9, fontWeight: '800', color: colors.surface[600], letterSpacing: 1 },
-  metricValue: { fontSize: 14, fontWeight: '800', color: colors.surface[200], marginTop: 2 },
+  cardContent: { gap: 16 },
+  routeSummaryList: { gap: 8 },
+  routeSummaryItem: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    backgroundColor: colors.surface[950] + '33', 
+    padding: 10, 
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.surface[850]
+  },
+  routeHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  routeSummaryText: { fontSize: 13, fontWeight: '700', color: colors.surface[200] },
+  routeBadge: { backgroundColor: colors.brand[500] + '22', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  routeBadgeText: { fontSize: 10, fontWeight: '900', color: colors.brand[400], textTransform: 'uppercase' },
 
-  routeBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface[950] + '40', padding: 10, borderRadius: radius.md, borderWidth: 1, borderColor: colors.surface[850] },
-  routeText: { fontSize: 12, fontWeight: '700', color: colors.surface[400] },
+  cardFooterStats: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'flex-end', 
+    paddingTop: 12, 
+    borderTopWidth: 1, 
+    borderTopColor: colors.surface[850] 
+  },
+  mainTripMetric: { flex: 1 },
+  mainMetricLabel: { fontSize: 9, fontWeight: '800', color: colors.brand[400], letterSpacing: 1, marginBottom: 4 },
+  mainMetricValue: { fontSize: 24, fontWeight: '900', color: colors.white },
+  subMetricItem: { alignItems: 'flex-end' },
+  subMetricLabel: { fontSize: 9, fontWeight: '800', color: colors.surface[500], letterSpacing: 1, marginBottom: 2 },
+  subMetricValue: { fontSize: 14, fontWeight: '800', color: colors.surface[300] },
 
-  notesBox: { backgroundColor: colors.surface[950] + '60', padding: 8, borderRadius: 6, borderLeftWidth: 2, borderLeftColor: colors.brand[500] },
-  notesText: { fontSize: 11, color: colors.surface[500], fontStyle: 'italic' },
+  historySection: { marginBottom: 20, maxHeight: 200 },
+  sectionLabel: { fontSize: 11, color: colors.surface[500], fontWeight: '900', letterSpacing: 1.5, marginBottom: 12 },
+  historyScroll: { backgroundColor: colors.surface[950] + '30', borderRadius: radius.lg, padding: 12, borderWidth: 1, borderColor: colors.surface[850] },
+  historyItem: { marginBottom: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.surface[850] },
+  historyHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  historyTime: { fontSize: 11, fontWeight: '700', color: colors.brand[400] },
+  historyTrips: { fontSize: 12, fontWeight: '900', color: colors.white },
+  historyRoute: { fontSize: 13, fontWeight: '600', color: colors.surface[300] },
+  historyNotes: { fontSize: 11, fontStyle: 'italic', color: colors.surface[500], marginTop: 4 },
 
   cardFooter: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.surface[850] },
   verifyBtn: { width: '100%', paddingVertical: 10 },

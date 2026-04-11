@@ -77,7 +77,7 @@ export default function VehiclesScreen() {
       {v.notes ? <Text style={styles.notes}>{v.notes}</Text> : null}
       <View style={styles.actions}>
         <TouchableOpacity onPress={() => openEdit(v)} style={styles.iconBtn}>
-          <Ionicons name="pencil-outline" size={16} color={colors.surface[400]} />
+          <Ionicons name="create-outline" size={16} color={colors.surface[400]} />
         </TouchableOpacity>
         <TouchableOpacity onPress={() => confirmDelete(v)} style={[styles.iconBtn, { backgroundColor: colors.red + '18' }]}>
           <Ionicons name="trash-outline" size={16} color={colors.red} />

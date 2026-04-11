@@ -186,7 +186,7 @@ export default function DieselScreen() {
       
       <View style={styles.actions}>
         <TouchableOpacity onPress={() => openEdit(d)} style={styles.iconBtn}>
-          <Ionicons name="pencil-outline" size={16} color={colors.surface[400]} />
+          <Ionicons name="create-outline" size={16} color={colors.surface[400]} />
         </TouchableOpacity>
         <TouchableOpacity onPress={() => confirmDelete(d)} style={[styles.iconBtn, { backgroundColor: colors.red + '18' }]}>
           <Ionicons name="trash-outline" size={16} color={colors.red} />
