@@ -155,20 +155,22 @@ export default function UpadScreen() {
                   </TouchableOpacity>
                 )}
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.summaryScroll} contentContainerStyle={styles.summaryContent}>
+              <View style={styles.summaryContent}>
                 {driverSummary.map(d => (
                   <TouchableOpacity 
                     key={d.id} 
                     style={[styles.summaryCard, filterDriverId === d.id && styles.summaryCardActive]}
                     onPress={() => setFilterDriverId(filterDriverId === d.id ? null : d.id)}
                   >
-                    <Text style={styles.summaryName} numberOfLines={1}>{d.name}</Text>
-                    <Text style={[styles.summaryAmt, { color: d.total > 0 ? colors.red : colors.green }]}>
-                      {formatCurrency(d.total)}
-                    </Text>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryName} numberOfLines={1}>{d.name}</Text>
+                      <Text style={[styles.summaryAmt, { color: d.total > 0 ? colors.brand[400] : colors.green }]}>
+                        {formatCurrency(d.total)}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
               <View style={styles.summaryHeader}>
                 <Text style={[styles.sectionLabel, { marginTop: spacing.lg }]}>Transactions</Text>
                 {(filterDriverId || filterDate) && (
@@ -184,8 +186,8 @@ export default function UpadScreen() {
           return (
             <Card style={styles.entryCard}>
               <View style={styles.entryRow}>
-                <View style={[styles.typeChip, { backgroundColor: isCredit ? colors.green + '22' : colors.red + '22' }]}>
-                  <Text style={[styles.typeText, { color: isCredit ? colors.green : colors.red }]}>
+                <View style={[styles.typeChip, { backgroundColor: isCredit ? colors.green + '22' : colors.brand[500] + '22' }]}>
+                  <Text style={[styles.typeText, { color: isCredit ? colors.green : colors.brand[400] }]}>
                     {isCredit ? 'CR' : 'DR'}
                   </Text>
                 </View>
@@ -193,7 +195,7 @@ export default function UpadScreen() {
                   <Text style={styles.entryDriver}>{dName}</Text>
                   <Text style={styles.entryDate}>{formatDateShort(u.date)}</Text>
                 </View>
-                <Text style={[styles.entryAmount, { color: isCredit ? colors.green : colors.red }]}>
+                <Text style={[styles.entryAmount, { color: isCredit ? colors.green : colors.brand[400] }]}>
                   {isCredit ? '-' : '+'}{formatCurrency(Math.abs(u.amount))}
                 </Text>
                 <TouchableOpacity onPress={() => confirmDelete(u)} style={styles.delBtn}>
@@ -217,7 +219,7 @@ export default function UpadScreen() {
           <View style={styles.balanceInfo}>
             <View>
               <Text style={styles.balanceLabel}>Current Balance</Text>
-              <Text style={[styles.balanceVal, { color: (driverSummary.find(d => d.id === form.driver)?.total || 0) > 0 ? colors.red : colors.green }]}>
+              <Text style={[styles.balanceVal, { color: (driverSummary.find(d => d.id === form.driver)?.total || 0) > 0 ? colors.brand[400] : colors.green }]}>
                 {formatCurrency(driverSummary.find(d => d.id === form.driver)?.total || 0)}
               </Text>
             </View>
@@ -252,12 +254,12 @@ const styles = StyleSheet.create({
 
   list:            { padding: spacing.lg, paddingBottom: 100 },
   summarySection:  { marginBottom: spacing.lg },
-  summaryScroll:   { marginHorizontal: -spacing.lg },
-  summaryContent:  { paddingHorizontal: spacing.lg, gap: spacing.sm },
-  summaryCard:     { backgroundColor: colors.surface[900], padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.surface[800], minWidth: 140 },
+  summaryContent:  { gap: spacing.xs },
+  summaryCard:     { backgroundColor: colors.surface[900], padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.surface[800] },
   summaryCardActive: { borderColor: colors.brand[500], backgroundColor: colors.brand[500] + '11' },
-  summaryName:     { fontSize: 11, fontWeight: '700', color: colors.surface[400], textTransform: 'uppercase', letterSpacing: 0.5 },
-  summaryAmt:      { fontSize: 18, fontWeight: '800', marginTop: 4 },
+  summaryRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  summaryName:     { fontSize: 11, fontWeight: '700', color: colors.surface[400], textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 },
+  summaryAmt:      { fontSize: 16, fontWeight: '800' },
 
   sectionLabel:    { fontSize: 11, color: colors.surface[500], fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: spacing.sm },
   entryCard:       { marginBottom: spacing.sm },

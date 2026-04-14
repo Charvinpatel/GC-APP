@@ -24,7 +24,7 @@ const PRESETS = [
 const REPORT_TABS = ['Daily', 'By Driver', 'By Vehicle', 'By Soil'];
 
 export default function ReportsScreen() {
-  const { trips, diesel, drivers, vehicles, soilTypes, fetchTrips, fetchDiesel, fetchDrivers, fetchVehicles, fetchSoilTypes } = useStore();
+  const { driverTrips, diesel, drivers, vehicles, soilTypes, locations, fetchDriverTrips, fetchDiesel, fetchDrivers, fetchVehicles, fetchSoilTypes, fetchLocations } = useStore();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('Daily');
@@ -47,11 +47,12 @@ export default function ReportsScreen() {
   const load = async () => {
     try {
       await Promise.all([
-        fetchTrips({ from: dateRange.from, to: dateRange.to, limit: 2000 }),
+        fetchDriverTrips({ from: dateRange.from, to: dateRange.to, limit: 2000 }),
         fetchDiesel({ from: dateRange.from, to: dateRange.to }),
-        drivers.length  === 0 ? fetchDrivers({ limit: 200 }) : Promise.resolve(),
-        vehicles.length === 0 ? fetchVehicles({ limit: 200 }) : Promise.resolve(),
-        soilTypes.length=== 0 ? fetchSoilTypes() : Promise.resolve(),
+        drivers.length   === 0 ? fetchDrivers({ limit: 200 })   : Promise.resolve(),
+        vehicles.length  === 0 ? fetchVehicles({ limit: 200 })  : Promise.resolve(),
+        soilTypes.length === 0 ? fetchSoilTypes()               : Promise.resolve(),
+        locations.length === 0 ? fetchLocations({ limit: 500 }) : Promise.resolve(),
       ]);
     } catch {}
     setLoading(false);
@@ -62,67 +63,95 @@ export default function ReportsScreen() {
   useEffect(() => { if (refreshTrigger > 0) onRefresh(); }, [refreshTrigger]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const getProcessedTrips = useMemo(() => {
+    return driverTrips.filter(t => t.status === 'verified').map(t => {
+      const dBase = (t.destination || '').split('|PRICE:')[0].trim();
+      const destLoc = locations.find(l => (l.name || '').split('|PRICE:')[0].trim() === dBase);
+      let locSellPrice = 0;
+      if (destLoc && destLoc.name && destLoc.name.includes('|PRICE:')) {
+        locSellPrice = Number(destLoc.name.split('|PRICE:')[1].trim());
+      } else if (destLoc?.price) {
+        locSellPrice = Number(destLoc.price);
+      }
+      const buyP  = Number(t.soilType?.buyPrice) || Number(t.buyPrice) || 0;
+      const sellP = locSellPrice || Number(t.sellPrice) || Number(t.soilType?.sellPrice) || 0;
+      const numTrips = Number(t.trips) || 1;
+      
+      return {
+        ...t,
+        computedRevenue: sellP * numTrips,
+        computedProfit:  (sellP - buyP) * numTrips,
+        computedTrips:   numTrips
+      };
+    });
+  }, [driverTrips, locations]);
+
   // ── Computed ──────────────────────────────────────────────────────────────
-  const totals = useMemo(() => ({
-    revenue: trips.reduce((s, t) => s + getTripRevenue(t), 0),
-    profit:  trips.reduce((s, t) => s + getTripProfit(t), 0),
-    trips:   trips.reduce((s, t) => s + t.trips, 0),
-    diesel:  diesel.reduce((s, d) => s + (d.amount || 0), 0),
-  }), [trips, diesel]);
+  const totals = useMemo(() => {
+    const filteredDiesel = diesel.filter(d => d.date >= dateRange.from && d.date <= dateRange.to);
+    return {
+      revenue: getProcessedTrips.reduce((s, t) => s + t.computedRevenue, 0),
+      profit:  getProcessedTrips.reduce((s, t) => s + t.computedProfit, 0),
+      trips:   getProcessedTrips.reduce((s, t) => s + t.computedTrips, 0),
+      diesel:  filteredDiesel.reduce((s, d) => s + (d.amount || 0), 0),
+    };
+  }, [getProcessedTrips, diesel, dateRange]);
 
   const dailyData = useMemo(() => {
     const days = {};
-    trips.forEach(t => {
+    getProcessedTrips.forEach(t => {
       if (!days[t.date]) days[t.date] = { date: t.date, trips: 0, revenue: 0, profit: 0, diesel: 0 };
-      days[t.date].trips   += t.trips;
-      days[t.date].revenue += getTripRevenue(t);
-      days[t.date].profit  += getTripProfit(t);
+      days[t.date].trips   += t.computedTrips;
+      days[t.date].revenue += t.computedRevenue;
+      days[t.date].profit  += t.computedProfit;
     });
-    diesel.forEach(d => {
+    
+    diesel.filter(d => d.date >= dateRange.from && d.date <= dateRange.to).forEach(d => {
       if (!days[d.date]) days[d.date] = { date: d.date, trips: 0, revenue: 0, profit: 0, diesel: 0 };
       days[d.date].diesel += (d.amount || 0);
     });
     return Object.values(days).sort((a, b) => b.date.localeCompare(a.date));
-  }, [trips, diesel]);
+  }, [getProcessedTrips, diesel, dateRange]);
 
   const driverData = useMemo(() => {
     const map = {};
-    trips.forEach(t => {
+    getProcessedTrips.forEach(t => {
       const id   = t.driverId;
       const name = t.driver?.name || drivers.find(d => d.id === id)?.name || 'Unknown';
       if (!map[id]) map[id] = { id, name, trips: 0, revenue: 0, profit: 0 };
-      map[id].trips   += t.trips;
-      map[id].revenue += getTripRevenue(t);
-      map[id].profit  += getTripProfit(t);
+      map[id].trips   += t.computedTrips;
+      map[id].revenue += t.computedRevenue;
+      map[id].profit  += t.computedProfit;
     });
     return Object.values(map).sort((a, b) => b.trips - a.trips);
-  }, [trips, drivers]);
+  }, [getProcessedTrips, drivers]);
 
   const vehicleData = useMemo(() => {
     const map = {};
-    trips.forEach(t => {
+    getProcessedTrips.forEach(t => {
       const id     = t.vehicleId;
       const number = t.vehicle?.number || vehicles.find(v => v.id === id)?.number || 'Unknown';
       if (!map[id]) map[id] = { id, number, trips: 0, revenue: 0, profit: 0 };
-      map[id].trips   += t.trips;
-      map[id].revenue += getTripRevenue(t);
-      map[id].profit  += getTripProfit(t);
+      map[id].trips   += t.computedTrips;
+      map[id].revenue += t.computedRevenue;
+      map[id].profit  += t.computedProfit;
     });
     return Object.values(map).sort((a, b) => b.trips - a.trips);
-  }, [trips, vehicles]);
+  }, [getProcessedTrips, vehicles]);
 
   const soilData = useMemo(() => {
     const map = {};
-    trips.forEach(t => {
+    getProcessedTrips.forEach(t => {
       const id   = t.soilTypeId;
       const name = t.soilType?.name || soilTypes.find(s => s.id === id)?.name || 'Unknown';
       if (!map[id]) map[id] = { id, name, trips: 0, revenue: 0, profit: 0 };
-      map[id].trips   += t.trips;
-      map[id].revenue += getTripRevenue(t);
-      map[id].profit  += getTripProfit(t);
+      map[id].trips   += t.computedTrips;
+      map[id].revenue += t.computedRevenue;
+      map[id].profit  += t.computedProfit;
     });
     return Object.values(map).sort((a, b) => b.trips - a.trips);
-  }, [trips, soilTypes]);
+  }, [getProcessedTrips, soilTypes]);
 
   if (loading) return <Loader />;
 
@@ -202,9 +231,9 @@ export default function ReportsScreen() {
                   <Text style={[styles.reportProfit, { color: colors.green }]}>{formatCurrency(d.profit)}</Text>
                 </View>
                 <View style={styles.divider} />
-                <Row label="Total Rides" value={String(d.trips)} />
-                <Row label="Revenue"    value={formatCurrency(d.revenue)} valueColor={colors.brand[400]} />
-                <Row label="Diesel Exp" value={formatCurrency(d.diesel)}  valueColor="#a855f7" />
+                <Row label="Total Rides" value={String(d.trips)} style={styles.dailyRow} />
+                <Row label="Revenue"    value={formatCurrency(d.revenue)} valueColor={colors.brand[400]} style={styles.dailyRow} />
+                <Row label="Diesel Exp" value={formatCurrency(d.diesel)}  valueColor="#a855f7" style={styles.dailyRow} />
               </GlassCard>
             ))
         )}
@@ -221,8 +250,8 @@ export default function ReportsScreen() {
                   <Text style={[styles.reportProfit, { color: colors.green }]}>{formatCurrency(d.profit)}</Text>
                 </View>
                 <View style={styles.divider} />
-                <Row label="Completed Trips" value={String(d.trips)} />
-                <Row label="Total Revenue"  value={formatCurrency(d.revenue)} valueColor={colors.brand[400]} />
+                <Row label="Completed Trips" value={String(d.trips)} style={styles.dailyRow} />
+                <Row label="Total Revenue"  value={formatCurrency(d.revenue)} valueColor={colors.brand[400]} style={styles.dailyRow} />
               </GlassCard>
             ))
         )}
@@ -239,8 +268,8 @@ export default function ReportsScreen() {
                   <Text style={[styles.reportProfit, { color: colors.brand[400] }]}>{formatCurrency(v.revenue)}</Text>
                 </View>
                 <View style={styles.divider} />
-                <Row label="Total Trips" value={String(v.trips)} />
-                <Row label="Net Profit" value={formatCurrency(v.profit)} valueColor={colors.green} />
+                <Row label="Total Trips" value={String(v.trips)} style={styles.dailyRow} />
+                <Row label="Net Profit" value={formatCurrency(v.profit)} valueColor={colors.green} style={styles.dailyRow} />
               </GlassCard>
             ))
         )}
@@ -257,8 +286,8 @@ export default function ReportsScreen() {
                   <Text style={[styles.reportProfit, { color: colors.brand[400] }]}>{formatCurrency(s.revenue)}</Text>
                 </View>
                 <View style={styles.divider} />
-                <Row label="Usage Freq" value={String(s.trips)} />
-                <Row label="Yield Info" value={formatCurrency(s.profit)} valueColor={colors.green} />
+                <Row label="Usage Freq" value={String(s.trips)} style={styles.dailyRow} />
+                <Row label="Yield Info" value={formatCurrency(s.profit)} valueColor={colors.green} style={styles.dailyRow} />
               </GlassCard>
             ))
         )}
@@ -297,12 +326,13 @@ const styles = StyleSheet.create({
   tabTextActive: { color: colors.white },
   tabIndicator:  { position: 'absolute', bottom: 0, left: '20%', right: '20%', height: 3, backgroundColor: colors.brand[500], borderRadius: 2 },
 
-  content:       { padding: spacing.xl, paddingBottom: 40 },
-  reportCard:    { marginBottom: spacing.md },
-  reportHead:    { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  reportTitle:   { fontSize: 15, fontWeight: '800', color: colors.white },
-  reportProfit:  { fontSize: 15, fontWeight: '800' },
-  divider:       { height: 1, backgroundColor: colors.surface[800], marginVertical: 12 },
-  rankCircle:    { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.brand[500] + '22', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.brand[500] + '30' },
-  rankText:      { fontSize: 12, fontWeight: '900', color: colors.brand[400] },
+  content:       { padding: spacing.xl, paddingBottom: 60 },
+  reportCard:    { marginBottom: spacing.xl, padding: spacing.lg },
+  reportHead:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
+  reportTitle:   { fontSize: 16, fontWeight: '900', color: colors.white },
+  reportProfit:  { fontSize: 16, fontWeight: '900' },
+  divider:       { height: 1, backgroundColor: colors.surface[800] + '80', marginTop: 4, marginBottom: spacing.sm },
+  rankCircle:    { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.brand[500] + '22', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.brand[500] + '30' },
+  rankText:      { fontSize: 14, fontWeight: '900', color: colors.brand[400] },
+  dailyRow:      { paddingVertical: spacing.sm, borderBottomWidth: 0 },
 });
