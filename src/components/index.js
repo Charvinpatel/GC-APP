@@ -25,10 +25,10 @@ export function StatCard({ label, value, icon, color = colors.brand[500], trend,
       <View style={[styles.statIcon, { backgroundColor: color + '15', borderColor: color + '30', borderWidth: 1 }]}>
         <Ionicons name={icon} size={18} color={color} />
       </View>
-      <View>
-        <Text style={styles.statValue}>{value}</Text>
-        <Text style={styles.statLabel}>{label}</Text>
-        {sub && <Text style={styles.statSub}>{sub}</Text>}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+        <Text style={styles.statLabel} numberOfLines={1}>{label}</Text>
+        {sub && <Text style={styles.statSub} numberOfLines={1}>{sub}</Text>}
       </View>
       {trend !== undefined && (
         <View style={styles.statTrend}>
@@ -259,7 +259,61 @@ export function BottomModal({ visible, onClose, title, children }) {
   );
 }
 
+// ── PremiumHeader ─────────────────────────────────────────────────────────────
+export function PremiumHeader({ title, subtitle, rightAction, showBack = false, onBack }) {
+  return (
+    <View style={headerStyles.container}>
+      <LinearGradient
+        colors={[colors.surface[950], colors.surface[900]]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={headerStyles.content}>
+        <View style={headerStyles.left}>
+           {showBack && (
+             <TouchableOpacity onPress={onBack} style={headerStyles.backBtn}>
+               <Ionicons name="chevron-back" size={24} color={colors.white} />
+             </TouchableOpacity>
+           )}
+           <View>
+              <Text style={headerStyles.title}>{title}</Text>
+              {subtitle && <Text style={headerStyles.subtitle}>{subtitle}</Text>}
+           </View>
+        </View>
+        <View style={headerStyles.right}>
+           {rightAction}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const headerStyles = StyleSheet.create({
+  container: {
+    paddingTop: 50,
+    backgroundColor: colors.surface[950],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surface[800],
+  },
+  content: {
+    height: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.xl,
+  },
+  left: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface[850], alignItems: 'center', justifyContent: 'center' },
+  title: { fontSize: 20, fontWeight: '900', color: colors.white, textTransform: 'uppercase', letterSpacing: -0.5 },
+  subtitle: { fontSize: 10, fontWeight: '700', color: colors.brand[400], textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 2 },
+  right: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+});
+
 // ── SelectPicker (custom dropdown) ───────────────────────────────────────────
+export const formatCurrency = (amount) => {
+  if (amount === null || amount === undefined || isNaN(amount)) return '₹0';
+  return `₹${Number(amount).toLocaleString('en-IN')}`;
+};
+
 export function SelectPicker({ label, value, options = [], onChange, placeholder = 'Choose option...' }) {
   const [open, setOpen] = React.useState(false);
   const selected = options.find(o => o.value === value);

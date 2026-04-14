@@ -137,7 +137,8 @@ export default function VerifyTripsScreen() {
       g.allTrips.push(t);
       g.totalRounds += (Number(t.trips) || 1);
       
-      const matName = t.soilType?.name || 'Material';
+      const soil = soilTypes.find(s => s.id === t.soilTypeId || s.id === t.soilType);
+      const matName = soil?.name || t.soilType?.name || 'GENERIC';
       const rKey = `${t.source || 'Mine'} → ${(t.destination || 'Site').split('|PRICE:')[0].trim()} [${matName}]`;
       if (!g.routeSummary[rKey]) {
         g.routeSummary[rKey] = { 
@@ -499,7 +500,10 @@ export default function VerifyTripsScreen() {
                             )}
                           </View>
                        </View>
-                       <Text style={styles.historyRoute}>{t.source} → {(t.destination || '').split('|PRICE:')[0].trim()}</Text>
+                       <View style={styles.historyRouteRow}>
+                          <Text style={styles.historyRoute}>{t.source} → {(t.destination || '').split('|PRICE:')[0].trim()}</Text>
+                          <Text style={styles.historyMaterial}>{soilTypes.find(s => s.id === t.soilTypeId || s.id === t.soilType)?.name || t.soilType?.name || 'MATERIAL'}</Text>
+                       </View>
                        {t.notes ? <Text style={styles.historyNotes}>"{t.notes}"</Text> : null}
                     </View>
                   ))}
@@ -652,7 +656,9 @@ const styles = StyleSheet.create({
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   historyTime: { fontSize: 11, fontWeight: '700', color: colors.brand[400] },
   historyTrips: { fontSize: 12, fontWeight: '900', color: colors.white },
-  historyRoute: { fontSize: 13, fontWeight: '600', color: colors.surface[300] },
+  historyRouteRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  historyRoute: { fontSize: 13, fontWeight: '700', color: colors.surface[300], flex: 1 },
+  historyMaterial: { fontSize: 9, fontWeight: '900', color: colors.brand[400], textTransform: 'uppercase', opacity: 0.8 },
   historyNotes: { fontSize: 11, fontStyle: 'italic', color: colors.surface[500], marginTop: 4 },
 
   cardFooter: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.surface[850] },

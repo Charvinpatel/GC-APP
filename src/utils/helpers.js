@@ -1,7 +1,8 @@
 import dayjs from 'dayjs';
 export const formatCurrency = (amount) => {
-  if (amount === null || amount === undefined) return '₹0';
-  return `₹${Number(amount).toLocaleString('en-IN')}`;
+  const num = Number(amount);
+  if (isNaN(num)) return '₹0';
+  return `₹${num.toLocaleString('en-IN')}`;
 };
 export const formatDate = (dateStr) => {
   if (!dateStr) return '-';
