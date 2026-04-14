@@ -23,8 +23,8 @@ const { width } = Dimensions.get('window');
 // ── DRIVER DASHBOARD ─────────────────────────────
 function DriverDashboard({ user }) {
   const {
-    driverTrips, vehicles, soilTypes, locations,
-    fetchDriverTrips, fetchVehicles, fetchSoilTypes, fetchLocations,
+    driverDashboardTrips, vehicles, soilTypes, locations, exportSoilTypes,
+    fetchDriverDashboardTrips, fetchVehicles, fetchSoilTypes, fetchLocations,
   } = useStore();
 
   const myId  = user?.driverProfile || user?.driverId || user?._id || user?.id;
@@ -39,7 +39,7 @@ function DriverDashboard({ user }) {
   const load = async (force = false) => {
     try {
       await Promise.all([
-        fetchDriverTrips({ date: selectedMonth }), 
+        fetchDriverDashboardTrips({ limit: 1000 }), 
         vehicles.length  === 0 || force ? fetchVehicles({ limit: 200 })  : Promise.resolve(),
         soilTypes.length === 0 || force ? fetchSoilTypes()               : Promise.resolve(),
         locations.length === 0 || force ? fetchLocations({ limit: 500 }) : Promise.resolve(),
@@ -55,8 +55,8 @@ function DriverDashboard({ user }) {
   const onRefresh = async () => { setRefreshing(true); await load(true); setRefreshing(false); };
 
   const monthlyTrips = useMemo(() => 
-    driverTrips.filter(t => t.date && t.date.startsWith(selectedMonth) && (t.driverId === myId || t.driver?._id === myId || t.driver?.id === myId))
-  , [driverTrips, selectedMonth, myId]);
+    driverDashboardTrips.filter(t => t.date && t.date.startsWith(selectedMonth) && (t.driverId === myId || t.driver?._id === myId || t.driver?.id === myId))
+  , [driverDashboardTrips, selectedMonth, myId]);
 
   const totalTrips = monthlyTrips.reduce((sum, t) => sum + (t.trips || 1), 0);
   const activeDays = new Set(monthlyTrips.map(t => t.date)).size;
@@ -152,12 +152,12 @@ function DriverDashboard({ user }) {
                 </View>
              </View>
              <View style={styles.moveRoute}>
-                <Text style={styles.routePill}>{t.source || 'MINE'}</Text>
+                <Text style={styles.routePill}>{(t.source || 'MINE').split('|PRICE:')[0].trim()}</Text>
                 <Ionicons name="arrow-forward" size={14} color={colors.surface[600]} />
-                <Text style={styles.routePill}>{t.destination || 'SITE'}</Text>
+                <Text style={styles.routePill}>{(t.destination || 'SITE').split('|PRICE:')[0].trim()}</Text>
              </View>
              <View style={styles.moveFooter}>
-                <Text style={styles.mMaterial}>{t.soilType?.name || 'MATERIAL'}</Text>
+                <Text style={styles.mMaterial}>{soilTypes.find(s => s.id === t.soilTypeId)?.name || 'MATERIAL'}</Text>
                 <Text style={styles.mTrips}>{t.trips} ROUNDS</Text>
              </View>
           </GlassCard>
@@ -494,6 +494,7 @@ const styles = StyleSheet.create({
 
   moveFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)', paddingTop: 10 },
   mMaterial: { fontSize: 11, color: colors.surface[500], fontWeight: '700' },
+  mRate: { fontSize: 11, color: colors.surface[600], fontWeight: '600' },
   mTrips: { fontSize: 12, color: colors.brand[400], fontWeight: '900' },
 
   profileBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: colors.surface[900], alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.surface[800], position: 'relative' },

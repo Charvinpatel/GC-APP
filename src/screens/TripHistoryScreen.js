@@ -4,10 +4,9 @@ import {
   RefreshControl, ActivityIndicator, TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import dayjs from 'dayjs';
 import { useStore } from '../store/useStore';
-import { EmptyState } from '../components';
+import { EmptyState, DatePicker } from '../components';
 import { colors, spacing, radius } from '../utils/theme';
 
 const FILTER_TABS = ['today', 'yesterday', 'custom'];
@@ -98,7 +97,9 @@ export default function TripHistoryScreen() {
                 </View>
                 <View>
                    <Text style={styles.vehicleNum}>{vehicle?.number || 'N/A'}</Text>
-                   <Text style={styles.tripsLabel}>{t.trips} ROUND TRIPS</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                       <Text style={styles.tripsLabel}>{t.trips} ROUNDS</Text>
+                    </View>
                 </View>
              </View>
              <View style={{ alignItems: 'flex-end' }}>
@@ -109,9 +110,9 @@ export default function TripHistoryScreen() {
 
           <View style={styles.routeFooter}>
             <Ionicons name="location" size={13} color={colors.brand[500]} />
-            <Text style={styles.routeText}>{t.source || 'MINE'}</Text>
+            <Text style={styles.routeText}>{(t.source || 'MINE').split('|PRICE:')[0].trim()}</Text>
             <Text style={styles.routeArrow}>→</Text>
-            <Text style={styles.routeText}>{t.destination || 'SITE'}</Text>
+            <Text style={styles.routeText}>{(t.destination || 'SITE').split('|PRICE:')[0].trim()}</Text>
           </View>
         </View>
       </View>
@@ -181,15 +182,11 @@ export default function TripHistoryScreen() {
           </View>
         )}
         {showDatePicker && (
-          <DateTimePicker
-            value={new Date(customDate)}
-            mode="date"
-            display="default"
-            onChange={(event, selectedDate) => {
+          <DatePicker
+            date={customDate}
+            onConfirm={(d) => {
+              setCustomDate(dayjs(d).format('YYYY-MM-DD'));
               setShowDatePicker(false);
-              if (selectedDate) {
-                setCustomDate(dayjs(selectedDate).format('YYYY-MM-DD'));
-              }
             }}
           />
         )}
@@ -266,7 +263,8 @@ const styles = StyleSheet.create({
   vehicleSection: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   truckIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.surface[950], borderWidth: 1, borderColor: colors.surface[800], alignItems: 'center', justifyContent: 'center' },
   vehicleNum: { fontSize: 14, fontWeight: '900', color: colors.white, fontFamily: 'monospace', textTransform: 'uppercase' },
-  tripsLabel: { fontSize: 9, fontWeight: '800', color: colors.brand[400], textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 },
+  tripsLabel: { fontSize: 9, fontWeight: '800', color: colors.brand[400], textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 },
+  rateLabel: { fontSize: 9, fontWeight: '800', color: colors.surface[500] },
   materialLabel: { fontSize: 8, fontWeight: '700', color: colors.surface[500], marginBottom: 2 },
   materialValue: { fontSize: 11, fontWeight: '900', color: colors.white },
 

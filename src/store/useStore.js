@@ -20,6 +20,7 @@ export const useStore = create((set, get) => ({
   vendors:     [],
   bills:       [],
   driverTrips: [],
+  driverDashboardTrips: [],
   upad:        [],
   locations:   [],
 
@@ -233,6 +234,12 @@ export const useStore = create((set, get) => ({
       const res = await api.driverTrips.getAll(filters);
       set({ driverTrips: [...res.map(mapDriverTrip)], contentLoading: false });
     } catch (e) { set({ contentLoading: false }); throw e; }
+  },
+  fetchDriverDashboardTrips: async (filters = {}) => {
+    try {
+      const res = await api.driverTrips.getAll(filters);
+      set({ driverDashboardTrips: [...res.map(mapDriverTrip)] });
+    } catch (e) { throw e; }
   },
   addDriverTrip: async (trip) => {
     const { user } = get();

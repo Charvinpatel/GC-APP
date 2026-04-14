@@ -2,7 +2,7 @@ import React from 'react';
 import {
   View, Text, TouchableOpacity, ActivityIndicator,
   TextInput, StyleSheet, Modal, ScrollView, Pressable,
-  Dimensions, Animated
+  Dimensions, Animated, Platform
 } from 'react-native';
 import { colors, spacing, radius, typography, shadows, gradients } from '../utils/theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -122,12 +122,19 @@ export function Input({ label, error, icon, style, inputStyle, rightElement, ...
 }
 
 // ── DatePicker ────────────────────────────────────────────────────────────────
-export function DatePicker({ label, date, onConfirm, mode = 'date', placeholder = 'Select Date' }) {
+export function DatePicker({ label, date, onConfirm, mode = 'date', format, placeholder = 'Select Date', ...props }) {
   const [show, setShow] = React.useState(false);
-  const formattedDate = date ? dayjs(date).format('DD MMM YYYY') : placeholder;
+  
+  let formatString = format || 'DD MMM YYYY';
+  if (!format) {
+    if (mode === 'time') formatString = 'hh:mm A';
+    if (mode === 'datetime') formatString = 'DD MMM YYYY hh:mm A';
+  }
+  
+  const formattedDate = date ? dayjs(date).format(formatString) : placeholder;
 
   const onChange = (event, selectedDate) => {
-    setShow(false);
+    setShow(Platform.OS === 'ios');
     if (selectedDate) onConfirm(selectedDate);
   };
 
@@ -139,8 +146,8 @@ export function DatePicker({ label, date, onConfirm, mode = 'date', placeholder 
         onPress={() => setShow(true)} 
         activeOpacity={0.8}
       >
-        <Ionicons name="calendar-outline" size={18} color={colors.brand[400]} style={{ marginRight: 10 }} />
-        <Text style={[styles.input, { color: date ? colors.surface[200] : colors.surface[600] }]}>
+        <Ionicons name={mode === 'time' ? "time-outline" : "calendar-outline"} size={18} color={colors.brand[400]} style={{ marginRight: 10 }} />
+        <Text style={[styles.input, { color: date ? colors.surface[200] : colors.surface[600], textAlignVertical: 'center', lineHeight: 20 }]}>
           {formattedDate}
         </Text>
         <Ionicons name="chevron-down" size={16} color={colors.surface[600]} />
@@ -150,10 +157,11 @@ export function DatePicker({ label, date, onConfirm, mode = 'date', placeholder 
         <DateTimePicker
           value={date ? new Date(date) : new Date()}
           mode={mode}
-          display="default"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
           onChange={onChange}
           themeVariant="dark"
           accentColor={colors.brand[500]}
+          {...props}
         />
       )}
     </View>

@@ -4,12 +4,11 @@ import {
   RefreshControl, Alert, Dimensions, StatusBar 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import dayjs from 'dayjs';
 import { useStore } from '../store/useStore';
 import { 
   Button, GlassCard, EmptyState, BottomModal, 
-  Input, SelectPicker, Loader, StatCard, DatePicker
+  Input, SelectPicker, Loader, StatCard, DatePicker, Badge
 } from '../components';
 import { colors, spacing, radius, shadows, gradients } from '../utils/theme';
 import { formatCurrency, formatDateShort } from '../utils/helpers';
@@ -25,7 +24,9 @@ const EMPTY = {
   vehicleId: '', 
   amount: '',
   pumpName: '',
-  pumpLocation: ''
+  pumpLocation: '',
+  odometer: '',
+  paymentMethod: 'Cash'
 };
 
 export default function DieselScreen() {
@@ -82,7 +83,9 @@ export default function DieselScreen() {
       vehicleId: d.vehicleId || '', 
       amount: String(d.amount || ''),
       pumpName: d.pumpName || '',
-      pumpLocation: d.pumpLocation || ''
+      pumpLocation: d.pumpLocation || '',
+      odometer: String(d.odometer || ''),
+      paymentMethod: d.paymentMethod || 'Cash'
     });
     setShowModal(true);
   };
@@ -162,6 +165,12 @@ export default function DieselScreen() {
   const totalAmount = diesel.reduce((s, d) => s + (d.amount || 0), 0);
   const driverOpts  = drivers.map(d => ({ label: d.name, value: d.id }));
   const vehicleOpts = vehicles.map(v => ({ label: v.number, value: v.id }));
+  const paymentMethods = [
+    { label: 'Cash', value: 'Cash' },
+    { label: 'UPI / GPay', value: 'UPI' },
+    { label: 'Fuel Card', value: 'Fuel Card' },
+    { label: 'Credit', value: 'Credit' }
+  ];
 
   const renderItem = ({ item: d }) => (
     <GlassCard style={styles.card}>
@@ -179,9 +188,16 @@ export default function DieselScreen() {
               <Text style={styles.pumpText}>{d.pumpName}{d.pumpName && d.pumpLocation ? ', ' : ''}{d.pumpLocation}</Text>
             </View>
           )}
+          {d.odometer ? (
+            <View style={styles.pumpInfo}>
+              <Ionicons name="speedometer-outline" size={10} color={colors.surface[500]} />
+              <Text style={styles.pumpText}>Odometer: {d.odometer} km</Text>
+            </View>
+          ) : null}
         </View>
         <View style={{ alignItems: 'flex-end' }}>
           <Text style={styles.cardAmount}>{formatCurrency(d.amount)}</Text>
+          <Badge label={d.paymentMethod || 'Cash'} color={colors.surface[500]} />
         </View>
       </View>
       
@@ -237,21 +253,17 @@ export default function DieselScreen() {
               <Ionicons name="calendar-outline" size={16} color={activePreset === 'Custom' ? colors.brand[400] : colors.surface[500]} />
            </TouchableOpacity>
 
-{showFilterPicker && (
-             <DateTimePicker
-               value={new Date(filterDate)}
-               mode="date"
-               display="default"
-               onChange={(event, selectedDate) => {
-                 setShowFilterPicker(false);
-                 if (selectedDate) {
-                   const d = dayjs(selectedDate).format('YYYY-MM-DD');
-                   setFilterDate(d);
-                   setActivePreset('Custom');
-                   load(d);
-                 }
-               }}
-             />
+           {showFilterPicker && (
+              <DatePicker 
+                date={filterDate || new Date()} 
+                onConfirm={(d) => {
+                  const ds = dayjs(d).format('YYYY-MM-DD');
+                  setFilterDate(ds);
+                  setActivePreset('Custom');
+                  load(ds);
+                  setShowFilterPicker(false);
+                }}
+              />
            )}
            <View style={styles.dateDisplay}>
               <Ionicons name="calendar-outline" size={12} color={colors.surface[500]} />
@@ -316,8 +328,17 @@ export default function DieselScreen() {
             </View>
           </View>
           
-          <Input label="Amount (₹) *" icon="cash-outline" keyboardType="numeric" value={form.amount} onChangeText={v => setForm(f => ({ ...f, amount: v }))} placeholder="0" />
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <View style={{ flex: 1 }}>
+               <Input label="Amount (₹) *" icon="cash-outline" keyboardType="numeric" value={form.amount} onChangeText={v => setForm(f => ({ ...f, amount: v }))} placeholder="0" />
+            </View>
+            <View style={{ flex: 1 }}>
+               <Input label="Odometer (Km)" icon="speedometer-outline" keyboardType="numeric" value={form.odometer} onChangeText={v => setForm(f => ({ ...f, odometer: v }))} placeholder="e.g. 45000" />
+            </View>
+          </View>
           
+          <SelectPicker label="Payment Method" value={form.paymentMethod} options={paymentMethods} onChange={v => setForm(f => ({ ...f, paymentMethod: v }))} />
+
           <Button title={editing ? 'UPDATE LOG' : 'SAVE DIESEL LOG'} onPress={save} loading={saving} icon="checkmark-circle-outline" glow style={{ marginTop: 20 }} />
         </View>
       </BottomModal>

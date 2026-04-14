@@ -10,7 +10,16 @@ import { Card, Badge, Row, EmptyState, BottomModal, Input, SelectPicker, Button,
 import { colors, spacing, radius } from '../utils/theme';
 
 const getToday = () => dayjs().format('YYYY-MM-DD');
-const makeEmptyForm = () => ({ date: getToday(), vehicleId: '', soilTypeId: '', source: '', destination: '', trips: '1', notes: '' });
+const makeEmptyForm = () => ({ 
+  date: getToday(), 
+  vehicleId: '', 
+  soilTypeId: '', 
+  source: '', 
+  destination: '', 
+  trips: '1', 
+  notes: '',
+  odometer: '' 
+});
 
 export default function MyTripsScreen() {
   const {
@@ -78,13 +87,29 @@ export default function MyTripsScreen() {
       await addDriverTrip({ ...form, driverId: myId, trips: Number(form.trips) || 1 });
       setShowModal(false);
       setForm(makeEmptyForm());
-      // Refresh list
       fetchDriverTrips({ date: today });
     } catch (e) {
       Alert.alert('Error', e.message);
     } finally {
       setSaving(false);
     }
+  };
+
+  const repeatLastTrip = () => {
+    if (todayTrips.length === 0) {
+      Alert.alert('No History', 'No previous trips found for today to repeat.');
+      return;
+    }
+    const last = todayTrips[0];
+    setForm({
+      ...makeEmptyForm(),
+      vehicleId: last.vehicleId,
+      soilTypeId: last.soilTypeId,
+      source: last.source,
+      destination: last.destination,
+      trips: String(last.trips || 1),
+    });
+    setShowModal(true);
   };
 
   const confirmDelete = (t) => {
@@ -128,10 +153,21 @@ export default function MyTripsScreen() {
              </View>
           </View>
 
-          <TouchableOpacity style={styles.logBtn} onPress={() => { setForm(makeEmptyForm()); setShowModal(true); }} activeOpacity={0.85}>
-            <Ionicons name="add" size={24} color={colors.white} />
-            <Text style={styles.logBtnText}>LOG NEW TRIP</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity 
+              style={[styles.logBtn, { flex: 1, backgroundColor: colors.surface[800], borderWidth: 1, borderColor: colors.surface[700], paddingHorizontal: 8 }]} 
+              onPress={repeatLastTrip} 
+              activeOpacity={0.85}
+            >
+              <Ionicons name="refresh" size={16} color={colors.brand[400]} />
+              <Text style={[styles.logBtnText, { fontSize: 11, color: colors.surface[200] }]} numberOfLines={1}>REPEAT LAST</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={[styles.logBtn, { flex: 1.2, paddingHorizontal: 12 }]} onPress={() => { setForm(makeEmptyForm()); setShowModal(true); }} activeOpacity={0.85}>
+              <Ionicons name="add" size={20} color={colors.white} />
+              <Text style={[styles.logBtnText, { fontSize: 14 }]}>NEW TRIP</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Feed Header */}
@@ -180,11 +216,13 @@ export default function MyTripsScreen() {
                        </View>
                        <View>
                           <Text style={styles.vehicleNumber}>{vehicle?.number || 'N/A'}</Text>
-                          <Text style={styles.tripsCount}>{t.trips} ROUND TRIPS</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                             <Text style={styles.tripsCount}>{t.trips} ROUNDS</Text>
+                          </View>
                        </View>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
-                       <Text style={styles.materialLabel}>Material</Text>
+                       <Text style={styles.materialLabel}>{t.odometer ? `Km: ${t.odometer}` : 'Material'}</Text>
                        <Text style={styles.materialValue}>{soilTypes.find(s => s.id === t.soilTypeId)?.name || 'Generic'}</Text>
                     </View>
                   </View>
@@ -258,7 +296,14 @@ export default function MyTripsScreen() {
           </View>
         </View>
 
-
+        <Input 
+          label="Odometer (Km) - Optional" 
+          icon="speedometer-outline" 
+          keyboardType="numeric" 
+          value={form.odometer} 
+          onChangeText={v => setForm(f => ({ ...f, odometer: v }))} 
+          placeholder="e.g. 45000" 
+        />
 
         <TouchableOpacity
           style={[styles.saveBtn, saving && { opacity: 0.6 }]}
@@ -316,7 +361,8 @@ const styles = StyleSheet.create({
   vehicleDetails: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   truckBox:       { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.surface[950], borderWidth: 1, borderColor: colors.surface[800], alignItems: 'center', justifyContent: 'center' },
   vehicleNumber:  { fontSize: 15, fontWeight: '900', color: colors.white, fontFamily: 'monospace', textTransform: 'uppercase' },
-  tripsCount:     { fontSize: 10, fontWeight: '800', color: colors.brand[400], textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 },
+  tripsCount:     { fontSize: 10, fontWeight: '800', color: colors.brand[400], textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 },
+  rateText:       { fontSize: 10, fontWeight: '800', color: colors.surface[500] },
   materialLabel:  { fontSize: 9, fontWeight: '700', color: colors.surface[500], textTransform: 'uppercase', marginBottom: 2 },
   materialValue:  { fontSize: 12, fontWeight: '900', color: colors.white, textTransform: 'uppercase' },
 

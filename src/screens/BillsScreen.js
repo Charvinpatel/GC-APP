@@ -9,6 +9,8 @@ import { useStore } from '../store/useStore';
 import { Button, Card, Badge, EmptyState, BottomModal, Input, Loader, Row, DatePicker } from '../components';
 import { colors, spacing, radius } from '../utils/theme';
 import { formatCurrency, formatDateShort } from '../utils/helpers';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 const STATUS_TABS = ['all', 'unpaid', 'paid'];
 
@@ -29,11 +31,13 @@ export default function BillsScreen() {
   const [selectedDestination, setSelectedDestination] = useState('');
   const [selectedTripIds, setSelectedTripIds]         = useState([]);
 
-  const [form, setForm] = useState({
+  const [form, setForm]                     = useState({
     vendorName: '',
     billNumber: `BILL-${Date.now().toString().slice(-6)}`,
     date: dayjs().format('YYYY-MM-DD'),
     notes: '',
+    tax: '0',
+    discount: '0',
   });
 
   const load = async (force = false) => {
@@ -138,23 +142,31 @@ export default function BillsScreen() {
        vehicleText: g.vehicles.size === 1 ? Array.from(g.vehicles)[0] : `${g.vehicles.size} Vehicles`
     })).sort((a,b) => dayjs(b.date).unix() - dayjs(a.date).unix());
   }, [availableTrips, locations]);
-
+  
   const selectedAmount = useMemo(() => {
-    return availableTrips.filter(t => selectedTripIds.includes(t.id)).reduce((s, t) => {
-      // DYNAMIC PAIRING: Find base destination
+    return selectedTripIds.reduce((sum, tid) => {
+      const t = availableTrips.find(x => x.id === tid);
+      if (!t) return sum;
+      
       const destBase = (t.destination || '').split('|PRICE:')[0].trim();
       const destLoc = locations.find(l => (l.name || '').split('|PRICE:')[0].trim() === destBase);
-      let locSellPrice = 0;
+      let locSellP = 0;
       if (destLoc && destLoc.name && destLoc.name.includes('|PRICE:')) {
-         locSellPrice = Number(destLoc.name.split('|PRICE:')[1].trim());
+         locSellP = Number(destLoc.name.split('|PRICE:')[1].trim());
       } else if (destLoc?.price) {
-         locSellPrice = Number(destLoc.price);
+         locSellP = Number(destLoc.price);
       }
-      const finalPrice = locSellPrice || Number(t.sellPrice) || Number(t.soilType?.sellPrice) || 0;
-
-      return s + (finalPrice * (t.trips || 1));
+      const finalP = locSellP || Number(t.sellPrice) || Number(t.soilType?.sellPrice) || 0;
+      return sum + (finalP * (Number(t.trips) || 1));
     }, 0);
   }, [availableTrips, selectedTripIds, locations]);
+
+  const finalTotal = useMemo(() => {
+    const tax = Number(form.tax) || 0;
+    const discount = Number(form.discount) || 0;
+    const taxAmt = (selectedAmount * tax) / 100;
+    return selectedAmount + taxAmt - discount;
+  }, [selectedAmount, form.tax, form.discount]);
 
   const openCreateModal = (dest) => {
     setSelectedDestination(dest);
@@ -164,6 +176,8 @@ export default function BillsScreen() {
       billNumber: `BILL-${Date.now().toString().slice(-6)}`,
       date: dayjs().format('YYYY-MM-DD'),
       notes: '',
+      tax: '0',
+      discount: '0',
     });
     setShowModal(true);
   };
@@ -183,6 +197,9 @@ export default function BillsScreen() {
         ...form,
         destination: selectedDestination,
         tripIds: selectedTripIds,
+        tax: Number(form.tax) || 0,
+        discount: Number(form.discount) || 0,
+        totalAmount: finalTotal,
       });
       setShowModal(false);
       load();
@@ -190,6 +207,112 @@ export default function BillsScreen() {
       Alert.alert('Error', e.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const exportInvoicePDF = async (bill) => {
+    // If bill is not provided, this is a preview or during creation? 
+    // Actually the request said implement Generate PDF button in invoice creation/bills screen.
+    // I'll implement it for existing bills first, and maybe a "Preview" for new ones.
+    
+    const targetBill = bill || {
+       ...form,
+       destination: selectedDestination,
+       totalAmount: finalTotal,
+       tripsCount: selectedCount
+    };
+
+    const html = `
+      <html>
+        <head>
+          <style>
+            body { font-family: 'Helvetica', sans-serif; padding: 40px; color: #333; }
+            .header { display: flex; justify-content: space-between; border-bottom: 2px solid #333; padding-bottom: 20px; }
+            .company { font-size: 28px; font-weight: bold; color: #d97706; }
+            .invoice-title { font-size: 24px; font-weight: bold; text-align: right; }
+            .details { display: flex; justify-content: space-between; margin-top: 30px; }
+            .bill-to { flex: 1; }
+            .invoice-info { text-align: right; }
+            table { width: 100%; border-collapse: collapse; margin-top: 40px; }
+            th { text-align: left; background: #eee; padding: 12px; font-size: 14px; }
+            td { padding: 12px; border-bottom: 1px solid #eee; font-size: 14px; }
+            .summary { margin-top: 30px; margin-left: auto; width: 250px; }
+            .summary-item { display: flex; justify-content: space-between; padding: 8px 0; }
+            .summary-total { font-weight: bold; font-size: 18px; border-top: 2px solid #333; margin-top: 10px; padding-top: 10px; }
+            .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #888; border-top: 1px solid #eee; padding-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="company">GANESH CARTING</div>
+              <div style="font-size: 12px; color: #666; margin-top: 4px;">Premium Transport Solutions</div>
+            </div>
+            <div class="invoice-info">
+              <div class="invoice-title">INVOICE</div>
+              <div style="margin-top: 4px;"># ${targetBill.billNumber}</div>
+              <div>Date: ${dayjs(targetBill.date).format('DD MMM YYYY')}</div>
+            </div>
+          </div>
+          
+          <div class="details">
+            <div class="bill-to">
+              <div style="font-size: 10px; color: #888; text-transform: uppercase;">Bill To:</div>
+              <div style="font-size: 18px; font-weight: bold; margin-top: 4px;">${targetBill.vendorName}</div>
+              <div style="margin-top: 4px;">Site: ${targetBill.destination}</div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th style="text-align: right;">Trips</th>
+                <th style="text-align: right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Transportation services for ${targetBill.destination}</td>
+                <td style="text-align: right;">${targetBill.totalTripsCount || targetBill.tripsCount || targetBill.trips || 0}</td>
+                <td style="text-align: right;">${formatCurrency(selectedAmount)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="summary">
+            <div class="summary-item">
+              <span>Subtotal</span>
+              <span>${formatCurrency(selectedAmount)}</span>
+            </div>
+            ${Number(targetBill.tax) > 0 ? `
+            <div class="summary-item">
+              <span>Tax (${targetBill.tax}%)</span>
+              <span>+ ${formatCurrency((selectedAmount * Number(targetBill.tax)) / 100)}</span>
+            </div>` : ''}
+            ${Number(targetBill.discount) > 0 ? `
+            <div class="summary-item">
+              <span>Discount</span>
+              <span>- ${formatCurrency(Number(targetBill.discount))}</span>
+            </div>` : ''}
+            <div class="summary-item summary-total">
+              <span>Total Amount</span>
+              <span>${formatCurrency(targetBill.totalAmount)}</span>
+            </div>
+          </div>
+
+          <div class="footer">
+            Thank you for your business! Generated by TransportPro App.
+          </div>
+        </body>
+      </html>
+    `;
+
+    try {
+      const { uri } = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    } catch (e) {
+      Alert.alert('Error', 'Failed to generate PDF');
     }
   };
 
@@ -391,21 +514,24 @@ export default function BillsScreen() {
 
               {/* Footer */}
               <View style={styles.billFooter}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Ionicons name="calendar-outline" size={12} color={colors.surface[500]} />
                   <Text style={styles.billDateText}>{formatDateShort(bill.date)}</Text>
                 </View>
-                {/* Delete button — inline */}
-                <TouchableOpacity
-                  onPress={() => confirmDelete(bill)}
-                  style={styles.deleteBtn}
-                >
-                  <Ionicons name="trash-outline" size={13} color={colors.red} />
-                  <Text style={styles.deleteBtnText}>Delete</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity onPress={() => exportInvoicePDF(bill)} style={[styles.deleteBtn, { backgroundColor: colors.brand[500] + '12' }]}>
+                    <Ionicons name="share-outline" size={13} color={colors.brand[400]} />
+                    <Text style={[styles.deleteBtnText, { color: colors.brand[400] }]}>PDF</Text>
+                  </TouchableOpacity>
+                  {/* Delete button — inline */}
+                  <TouchableOpacity
+                    onPress={() => confirmDelete(bill)}
+                    style={styles.deleteBtn}
+                  >
+                    <Ionicons name="trash-outline" size={13} color={colors.red} />
+                    <Text style={styles.deleteBtnText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
-          </View>
         )}
       />
         </>
@@ -431,6 +557,15 @@ export default function BillsScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <DatePicker label="Date" date={form.date} onConfirm={d => setForm(f => ({ ...f, date: dayjs(d).format('YYYY-MM-DD') }))} />
+            </View>
+          </View>
+
+          <View style={styles.modalGrid}>
+            <View style={{ flex: 1 }}>
+              <Input label="Tax (GST %)" keyboardType="numeric" value={form.tax} onChangeText={v => setForm(f => ({ ...f, tax: v }))} placeholder="0" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Input label="Discount (₹)" keyboardType="numeric" value={form.discount} onChangeText={v => setForm(f => ({ ...f, discount: v }))} placeholder="0" />
             </View>
           </View>
 
@@ -498,12 +633,15 @@ export default function BillsScreen() {
               <Text style={styles.summaryValue}>{selectedCount}</Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.summaryLabel}>TOTAL REVENUE</Text>
-              <Text style={[styles.summaryValue, { color: colors.brand[400] }]}>{formatCurrency(selectedAmount)}</Text>
+              <Text style={styles.summaryLabel}>TOTAL AMOUNT</Text>
+              <Text style={[styles.summaryValue, { color: colors.brand[400] }]}>{formatCurrency(finalTotal)}</Text>
             </View>
           </View>
 
-          <Button title="FINALIZE INVOICE" onPress={saveBill} loading={saving} icon="receipt-outline" />
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Button title="SHARE PDF" onPress={() => exportInvoicePDF()} variant="outline" icon="share-outline" style={{ flex: 1 }} />
+            <Button title="FINALIZE INVOICE" onPress={saveBill} loading={saving} icon="receipt-outline" style={{ flex: 2 }} />
+          </View>
         </View>
       </BottomModal>
     </View>

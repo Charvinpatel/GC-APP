@@ -3,11 +3,11 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   RefreshControl, Alert, ScrollView
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
 import { useStore } from '../store/useStore';
-import { Button, Card, EmptyState, BottomModal, Input, SelectPicker, Loader, Row, DatePicker } from '../components';
+import { Button, Card, EmptyState, BottomModal, Input, SelectPicker, Loader, Row, DatePicker, Badge } from '../components';
 import { colors, spacing, radius } from '../utils/theme';
 import { formatCurrency, formatDateShort } from '../utils/helpers';
 
@@ -21,7 +21,6 @@ export default function UpadScreen() {
   // Filter State
   const [filterDriverId, setFilterDriverId] = useState(null);
   const [filterDate, setFilterDate] = useState(null);
-  const [showPicker, setShowPicker] = useState(false);
 
   const [form, setForm] = useState({
     driver: '',
@@ -116,22 +115,14 @@ export default function UpadScreen() {
           <Text style={styles.totalLabel}>Total Outstanding Advance</Text>
           <Text style={styles.totalVal}>{formatCurrency(totalAdvance)}</Text>
         </View>
-        <TouchableOpacity style={styles.filterBtn} onPress={() => setShowPicker(true)}>
-           <Ionicons name="calendar-outline" size={20} color={filterDate ? colors.brand[400] : colors.surface[500]} />
-        </TouchableOpacity>
+        <View style={{ width: 140 }}>
+          <DatePicker 
+             date={filterDate} 
+             placeholder="Filter Date" 
+             onConfirm={d => setFilterDate(dayjs(d).format('YYYY-MM-DD'))} 
+          />
+        </View>
       </View>
-
-      {showPicker && (
-         <DateTimePicker
-           value={filterDate ? new Date(filterDate) : new Date()}
-           mode="date"
-           display="default"
-           onChange={(event, date) => {
-             setShowPicker(false);
-             if (date) setFilterDate(dayjs(date).format('YYYY-MM-DD'));
-           }}
-         />
-      )}
 
       <FlatList
         data={filteredUpad}

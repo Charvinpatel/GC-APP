@@ -6,10 +6,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
 import { useStore } from '../store/useStore';
-import { GlassCard, Row, SectionHeader, Loader, EmptyState } from '../components';
-import { colors, spacing, radius, shadows, gradients } from '../utils/theme';
 import { formatCurrency, formatDateShort, getTripProfit, getTripRevenue } from '../utils/helpers';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import { DatePicker, Loader, EmptyState, Row, GlassCard } from '../components';
+import { colors, spacing, radius } from '../utils/theme';
 
 const { width } = Dimensions.get('window');
 
@@ -41,6 +43,88 @@ export default function ReportsScreen() {
       const to   = found.endDate();
       setDateRange({ from, to });
       setPreset(p);
+    } else if (p === 'Custom') {
+      setPreset('Custom');
+    }
+  };
+
+  const exportPDF = async () => {
+    const html = `
+      <html>
+        <head>
+          <style>
+            body { font-family: 'Helvetica', sans-serif; padding: 20px; color: #333; }
+            .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+            .title { font-size: 24px; font-weight: bold; margin: 0; }
+            .period { font-size: 14px; color: #666; margin-top: 5px; }
+            .stats-grid { display: flex; justify-content: space-between; margin-bottom: 30px; background: #f9f9f9; padding: 15px; borderRadius: 8px; }
+            .stat-item { text-align: center; flex: 1; }
+            .stat-label { font-size: 10px; color: #888; text-transform: uppercase; }
+            .stat-value { font-size: 18px; font-weight: bold; color: #333; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th { text-align: left; background: #f2f2f2; padding: 10px; font-size: 12px; }
+            td { padding: 10px; border-bottom: 1px solid #eee; font-size: 12px; }
+            .total-row { font-weight: bold; background: #fafafa; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1 class="title">TransportPro Performance Report</h1>
+            <div class="period">Period: ${dayjs(dateRange.from).format('DD MMM')} - ${dayjs(dateRange.to).format('DD MMM YYYY')}</div>
+          </div>
+          
+          <div class="stats-grid">
+            <div class="stat-item">
+              <div class="stat-label">Total Revenue</div>
+              <div class="stat-value">${formatCurrency(totals.revenue)}</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Total Profit</div>
+              <div class="stat-value">${formatCurrency(totals.profit)}</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Diesel Expense</div>
+              <div class="stat-value">${formatCurrency(totals.diesel)}</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Trips</div>
+              <div class="stat-value">${totals.trips}</div>
+            </div>
+          </div>
+
+          <h2>${activeTab} Breakdown</h2>
+          <table>
+            <thead>
+              <tr>
+                ${activeTab === 'Daily' ? '<th>Date</th>' : ''}
+                ${activeTab === 'By Driver' ? '<th>Driver</th>' : ''}
+                ${activeTab === 'By Vehicle' ? '<th>Vehicle</th>' : ''}
+                ${activeTab === 'By Soil' ? '<th>Material</th>' : ''}
+                <th>Trips</th>
+                <th>Revenue</th>
+                <th>Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(activeTab === 'Daily' ? dailyData : activeTab === 'By Driver' ? driverData : activeTab === 'By Vehicle' ? vehicleData : soilData).map(d => `
+                <tr>
+                  <td>${d.date ? dayjs(d.date).format('DD MMM YYYY') : (d.name || d.number || 'N/A')}</td>
+                  <td>${d.trips}</td>
+                  <td>${formatCurrency(d.revenue)}</td>
+                  <td>${formatCurrency(d.profit)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    try {
+      const { uri } = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -166,9 +250,10 @@ export default function ReportsScreen() {
             <Text style={styles.headerTitle}>REPORTS</Text>
             <Text style={styles.headerSub}>PERFORMANCE INSIGHTS</Text>
           </View>
-          <View style={styles.periodBar}>
-            <Ionicons name="calendar" size={12} color={colors.brand[400]} />
-            <Text style={styles.periodText}>{preset}</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity style={styles.downloadBtn} onPress={exportPDF}>
+              <Ionicons name="document-text-outline" size={20} color={colors.brand[400]} />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -183,7 +268,32 @@ export default function ReportsScreen() {
               <Text style={[styles.presetText, preset === p.label && styles.presetTextActive]}>{p.label}</Text>
             </TouchableOpacity>
           ))}
+          <TouchableOpacity
+            style={[styles.presetBtn, preset === 'Custom' && styles.presetBtnActive]}
+            onPress={() => applyPreset('Custom')}
+          >
+            <Text style={[styles.presetText, preset === 'Custom' && styles.presetTextActive]}>Custom</Text>
+          </TouchableOpacity>
         </ScrollView>
+
+        {preset === 'Custom' && (
+          <View style={styles.customDateRow}>
+            <View style={{ flex: 1 }}>
+              <DatePicker 
+                label="From" 
+                date={dateRange.from} 
+                onConfirm={d => setDateRange(prev => ({ ...prev, from: dayjs(d).format('YYYY-MM-DD') }))} 
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <DatePicker 
+                label="To" 
+                date={dateRange.to} 
+                onConfirm={d => setDateRange(prev => ({ ...prev, to: dayjs(d).format('YYYY-MM-DD') }))} 
+              />
+            </View>
+          </View>
+        )}
 
         {/* Dynamic Summary Cards */}
         <View style={styles.summaryGrid}>
@@ -305,6 +415,8 @@ const styles = StyleSheet.create({
   
   periodBar:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.surface[900], paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.full, borderWidth: 1, borderColor: colors.surface[800] },
   periodText:    { fontSize: 10, fontWeight: '700', color: colors.surface[400] },
+  downloadBtn:   { width: 44, height: 44, borderRadius: 14, backgroundColor: colors.surface[900], alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.surface[800] },
+  customDateRow: { flexDirection: 'row', gap: 12, paddingHorizontal: spacing.xl, marginBottom: 16 },
 
   presetScroll:  { maxHeight: 44, marginBottom: 16 },
   presets:       { paddingHorizontal: spacing.xl, gap: spacing.xs, alignItems: 'center' },

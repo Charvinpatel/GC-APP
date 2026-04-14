@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Dimensions
+  View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -160,18 +160,23 @@ function CustomDrawerContent(props) {
   };
 
   const ALL_NAV_ITEMS = [
+    { type: 'header', label: 'OPERATIONS' },
     { label: 'Dashboard',     icon: 'grid-outline',            screen: 'Home' },
     { label: 'Today Trips',   icon: 'today-outline',           screen: 'DriverMyTrips', driverOnly: true, count: counts.driverToday },
     { label: 'Trip History',  icon: 'time-outline',            screen: 'DriverHistory', driverOnly: true },
     { label: 'Today Trips',   icon: 'today-outline',           screen: 'VerifyTrips',   adminOnly: true, count: counts.pendingTrips },
-    { label: 'Trips',         icon: 'car-outline',             screen: 'AllTrips',      adminOnly: true },
-    { label: 'Diesel',        icon: 'flame-outline',           screen: 'AllDiesel',     adminOnly: true },
+    { label: 'Trips History', icon: 'car-outline',             screen: 'AllTrips',      adminOnly: true },
+    { label: 'Diesel Logs',   icon: 'flame-outline',           screen: 'AllDiesel',     adminOnly: true },
     { label: 'Upad / Advance',icon: 'wallet-outline',          screen: 'Upad',          adminOnly: true },
+    
+    { type: 'header', label: 'FLEET & MASTERS', adminOnly: true },
     { label: 'Drivers',       icon: 'people-outline',          screen: 'Drivers',       adminOnly: true },
     { label: 'Vehicles',      icon: 'bus-outline',             screen: 'Vehicles',      adminOnly: true },
     { label: 'Soil Types',    icon: 'layers-outline',          screen: 'Soil',          adminOnly: true },
     { label: 'Locations',     icon: 'location-outline',        screen: 'Locations',     adminOnly: true },
-    { label: 'Bills',         icon: 'receipt-outline',         screen: 'Bills',         adminOnly: true, count: counts.unpaidBills },
+    
+    { type: 'header', label: 'FINANCIALS & ADMIN', adminOnly: true },
+    { label: 'Invoices (Bills)', icon: 'receipt-outline',         screen: 'Bills',         adminOnly: true, count: counts.unpaidBills },
     { label: 'Reports',       icon: 'document-text-outline',   screen: 'Reports',       adminOnly: true },
   ];
 
@@ -198,8 +203,15 @@ function CustomDrawerContent(props) {
         </View>
       </View>
 
-      <View style={{ flex: 1 }}>
-        {NAV_ITEMS.map(item => {
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+        {NAV_ITEMS.map((item, idx) => {
+          if (item.type === 'header') {
+            return (
+              <View key={`header-${idx}`} style={drawerStyles.sectionHeader}>
+                <Text style={drawerStyles.sectionHeaderText}>{item.label}</Text>
+              </View>
+            );
+          }
           // Exclusive highlight logic: Identify correct item when in Home tabs
           let isActive = false;
           if (currentRoute === 'Home') {
@@ -251,7 +263,7 @@ function CustomDrawerContent(props) {
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
 
       {/* User Info + Logout */}
       <View style={drawerStyles.footer}>
@@ -365,6 +377,8 @@ const drawerStyles = StyleSheet.create({
   logoBox:         { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.brand[500] + '22', borderWidth: 1, borderColor: colors.brand[500] + '44', alignItems: 'center', justifyContent: 'center' },
   logoName:        { fontSize: 18, fontWeight: '900', color: colors.white, letterSpacing: 4 },
   logoSub:         { fontSize: 9, color: colors.brand[400], letterSpacing: 6, marginTop: -2, fontWeight: '700' },
+  sectionHeader:   { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 8 },
+  sectionHeaderText: { fontSize: 10, fontWeight: '900', color: colors.surface[600], letterSpacing: 1.5 },
   badge:           { backgroundColor: colors.brand[500], paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10, marginLeft: 8 },
   badgeText:       { color: colors.white, fontSize: 10, fontWeight: '800' },
   navItem:         { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 16, marginHorizontal: 8, borderRadius: radius.md, marginBottom: 2, borderWidth: 1, borderColor: 'transparent' },

@@ -45,7 +45,7 @@ export default function TripsScreen() {
   const [editing, setEditing]         = useState(null);
   const [form, setForm]               = useState(EMPTY_MULTI_TRIP);
   const [saving, setSaving]           = useState(false);
-  const [page, setPage]               = useState(1);
+  const [errors, setErrors]           = useState({});
   
   const [filterType, setFilterType]   = useState('today'); // 'all', 'today', 'custom'
   const [customDate, setCustomDate]   = useState(dayjs().format('YYYY-MM-DD'));
@@ -54,6 +54,9 @@ export default function TripsScreen() {
     if (filterType === 'all') return '';
     return customDate;
   }, [filterType, customDate]);
+
+  const [driverFilter, setDriverFilter] = useState('');
+  const [vehicleFilter, setVehicleFilter] = useState('');
   const load = useCallback(async (force = false) => {
     setLoading(true);
     try {
@@ -97,6 +100,7 @@ export default function TripsScreen() {
         notes:       s.notes || '',
       }))
     });
+    setErrors({});
     setShowModal(true);
   };
   const handleSoilChange = (soilId, routeId) => {
@@ -162,18 +166,25 @@ export default function TripsScreen() {
     }));
   };
   const save = async () => {
-    if (!form.driverId || !form.vehicleId || !form.date) {
-      Alert.alert('Error', 'Please fill all required global fields');
-      return;
-    }
+    const newErrors = {};
+    if (!form.driverId) newErrors.driverId = 'Required';
+    if (!form.vehicleId) newErrors.vehicleId = 'Required';
+    if (!form.date) newErrors.date = 'Required';
     
-    for (let i = 0; i < form.routes.length; i++) {
-        const r = form.routes[i];
-        if (!r.soilTypeId || !r.source || !r.destination || !r.buyPrice || !r.sellPrice) {
-           Alert.alert('Error', `Please fill all required fields in Route #${i+1}`);
-           return;
-        }
+    form.routes.forEach((r, idx) => {
+        if (!r.soilTypeId) newErrors[`route_${r.id}_soil`] = 'Required';
+        if (!r.source)     newErrors[`route_${r.id}_source`] = 'Required';
+        if (!r.destination) newErrors[`route_${r.id}_destination`] = 'Required';
+        if (!r.buyPrice)    newErrors[`route_${r.id}_buy`] = 'Required';
+        if (!r.sellPrice)   newErrors[`route_${r.id}_sell`] = 'Required';
+    });
+
+    if (Object.keys(newErrors).length > 0) {
+        setErrors(newErrors);
+        Alert.alert('Validation Error', 'Please check highlighted fields');
+        return;
     }
+    setErrors({});
     setSaving(true);
     try {
       // 1. Delete all original trips in this vehicle+date group to ensure clean state
@@ -240,8 +251,12 @@ export default function TripsScreen() {
   
   const vehicleGroups = useMemo(() => {
     const groups = {};
-    driverTrips.filter(t => t.status === 'verified').forEach(t => {
-      const vId = t.vehicleId || 'unknown';
+    driverTrips
+      .filter(t => t.status === 'verified')
+      .filter(t => !driverFilter  || String(t.driverId) === String(driverFilter))
+      .filter(t => !vehicleFilter || String(t.vehicleId) === String(vehicleFilter))
+      .forEach(t => {
+        const vId = t.vehicleId || 'unknown';
       const dateKey = t.date || 'unknown_date';
       const groupKey = `${vId}_${dateKey}`;
       if (!groups[groupKey]) {
@@ -306,7 +321,7 @@ export default function TripsScreen() {
       }
       return b.totalTrips - a.totalTrips;
     });
-  }, [driverTrips, locations]);
+  }, [driverTrips, locations, driverFilter, vehicleFilter]);
   const renderGroup = ({ item: g }) => (
     <Card style={styles.tripCard}>
       <View style={styles.tripHeader}>
@@ -420,6 +435,27 @@ export default function TripsScreen() {
             </TouchableOpacity>
           </View>
         )}
+
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: spacing.md }}>
+          <View style={{ flex: 1 }}>
+            <SelectPicker 
+              label="Driver Filter" 
+              value={driverFilter} 
+              options={[{ label: 'ALL DRIVERS', value: '' }, ...driverOpts]} 
+              onChange={setDriverFilter} 
+              placeholder="All Drivers" 
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <SelectPicker 
+              label="Vehicle Filter" 
+              value={vehicleFilter} 
+              options={[{ label: 'ALL VEHICLES', value: '' }, ...vehicleOpts]} 
+              onChange={setVehicleFilter} 
+              placeholder="All Vehicles" 
+            />
+          </View>
+        </View>
       </View>
       <FlatList
         data={vehicleGroups}
@@ -441,14 +477,17 @@ export default function TripsScreen() {
            <View style={{ flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md }}>
              <View style={{ flex: 1 }}>
                <SelectPicker label="Driver *" value={form.driverId} options={driverOpts} onChange={v => setForm(f => ({ ...f, driverId: v }))} placeholder="Select driver" />
+               {errors.driverId && <Text style={styles.errorText}>{errors.driverId}</Text>}
              </View>
              <View style={{ flex: 1 }}>
                <SelectPicker label="Vehicle *" value={form.vehicleId} options={vehicleOpts} onChange={v => setForm(f => ({ ...f, vehicleId: v }))} placeholder="Select vehicle" />
+               {errors.vehicleId && <Text style={styles.errorText}>{errors.vehicleId}</Text>}
              </View>
            </View>
            
            <View style={{ marginBottom: spacing.md }}>
              <DatePicker label="Date *" date={form.date} onConfirm={(d) => setForm(f => ({ ...f, date: dayjs(d).format('YYYY-MM-DD') }))} />
+             {errors.date && <Text style={styles.errorText}>{errors.date}</Text>}
            </View>
            <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.surface[800], paddingTop: spacing.md }}>
              <Text style={styles.sectionTitle}>ROUTE ENTRIES</Text>
@@ -467,26 +506,33 @@ export default function TripsScreen() {
                     </View>
                     
                     <SelectPicker label="Soil Type *" value={r.soilTypeId} options={soilOpts} onChange={v => handleSoilChange(v, r.id)} placeholder="Select material..." />
+                    {errors[`route_${r.id}_soil`] && <Text style={styles.errorText}>{errors[`route_${r.id}_soil`]}</Text>}
                     
                     <View style={{ flexDirection: 'row', gap: spacing.md }}>
                       <View style={{ flex: 1 }}>
                         <SelectPicker label="Source *" value={r.source} options={sourceOpts} onChange={v => updateRoute(r.id, 'source', v)} placeholder="Source" />
+                        {errors[`route_${r.id}_source`] && <Text style={styles.errorText}>{errors[`route_${r.id}_source`]}</Text>}
                       </View>
                       <View style={{ flex: 1 }}>
                         <SelectPicker label="Destination *" value={r.destination} options={destOpts} onChange={v => updateRoute(r.id, 'destination', v)} placeholder="Destination" />
+                        {errors[`route_${r.id}_destination`] && <Text style={styles.errorText}>{errors[`route_${r.id}_destination`]}</Text>}
                       </View>
                     </View>
+
                     <View style={{ flexDirection: 'row', gap: spacing.md }}>
                       <View style={{ flex: 1 }}>
                         <Input label="Trips *" keyboardType="numeric" value={r.trips} onChangeText={v => updateRoute(r.id, 'trips', v)} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Input label="Buy Price *" icon="arrow-down-circle-outline" keyboardType="numeric" value={r.buyPrice} onChangeText={v => updateRoute(r.id, 'buyPrice', v)} placeholder="₹0" />
+                        {errors[`route_${r.id}_buy`] && <Text style={styles.errorText}>{errors[`route_${r.id}_buy`]}</Text>}
                       </View>
                       <View style={{ flex: 1 }}>
                         <Input label="Sell Price *" icon="arrow-up-circle-outline" keyboardType="numeric" value={r.sellPrice} onChangeText={v => updateRoute(r.id, 'sellPrice', v)} placeholder="₹0" />
+                        {errors[`route_${r.id}_sell`] && <Text style={styles.errorText}>{errors[`route_${r.id}_sell`]}</Text>}
                       </View>
                     </View>
+
                     {Number(r.trips) > 0 && Number(r.buyPrice) > 0 && (
                       <View style={[styles.marginPreview, { borderColor: rMargin >= 0 ? colors.green + '40' : colors.red + '40', backgroundColor: rMargin >= 0 ? colors.green + '10' : colors.red + '10' }]}>
                         <Text style={styles.marginLabel}>Margin</Text>
@@ -570,5 +616,12 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     elevation: 8,
     shadowColor: colors.brand[500], shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+  },
+  errorText: {
+    fontSize: 9, 
+    fontWeight: 'bold', 
+    color: colors.red, 
+    marginTop: 2, 
+    marginLeft: 4
   },
 });

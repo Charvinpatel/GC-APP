@@ -46,7 +46,7 @@ export default function VerifyTripsScreen() {
   const [saving, setSaving]             = useState(false);
   const [matchingTripId, setMatchingTripId] = useState('');
   const [verifyNote, setVerifyNote]     = useState('');
-  const [activeTab, setActiveTab]       = useState('all');
+  const [vehicleSearch, setVehicleSearch] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingTrip, setEditingTrip]   = useState(null);
   const [editForm, setEditForm]         = useState({});
@@ -90,7 +90,10 @@ export default function VerifyTripsScreen() {
       list = list.filter(t => t.driverId === myId || t.driver?._id === myId || t.driver?.id === myId);
     }
 
-    if (activeTab !== 'all') list = list.filter(t => t.status === activeTab);
+    if (vehicleSearch) {
+      const q = vehicleSearch.toLowerCase();
+      list = list.filter(t => (t.vehicle?.number || '').toLowerCase().includes(q));
+    }
 
     if (filters.driverId)    list = list.filter(t => String(t.driverId) === String(filters.driverId));
     if (filters.vehicleId)   list = list.filter(t => String(t.vehicleId) === String(filters.vehicleId));
@@ -106,7 +109,7 @@ export default function VerifyTripsScreen() {
     }
 
     return list.sort((a, b) => dayjs(b.createdAt || b.date).unix() - dayjs(a.createdAt || a.date).unix());
-  }, [driverTrips, activeTab, isDriver, user, filters]);
+  }, [driverTrips, isDriver, user, filters, vehicleSearch]);
 
   const groupedByDateAndVehicle = useMemo(() => {
     const dates = {};
@@ -307,9 +310,17 @@ export default function VerifyTripsScreen() {
           </TouchableOpacity>
         </View>
 
-
-
-
+        {/* Search Bar for Vehicle */}
+        <View style={styles.searchContainer}>
+          <Input
+            icon="search-outline"
+            placeholder="Search Vehicle Number..."
+            value={vehicleSearch}
+            onChangeText={setVehicleSearch}
+            style={{ marginBottom: 0 }}
+            inputStyle={{ fontSize: 13 }}
+          />
+        </View>
       </View>
 
       {/* ── Main List ───────────────────────── */}
@@ -576,6 +587,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 24, fontWeight: '900', color: colors.white, letterSpacing: -1 },
   headerSub: { fontSize: 10, fontWeight: '800', color: colors.brand[400], letterSpacing: 1.5 },
+
+  searchContainer: { paddingHorizontal: spacing.xl, marginBottom: spacing.md },
 
   filterPill: { 
     width: 44,
