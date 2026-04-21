@@ -55,7 +55,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "7223218f-081e-419b-aa84-5d9b8f8c293e"
+        "projectId": "83a83b62-d0b2-44fb-a96e-eb01739464ba"
       }
     },
     "runtimeVersion": {
@@ -63,6 +63,7 @@
     },
     "updates": {
       "url": "https://u.expo.dev/83a83b62-d0b2-44fb-a96e-eb01739464ba"
-    }
+    },
+    "owner": "charvinpatel"
   }
 }
