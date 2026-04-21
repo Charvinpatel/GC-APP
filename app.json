@@ -32,8 +32,8 @@
         {
           "android": {
             "usesCleartextTraffic": true,
-            "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true,
+            "enableProguardInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
             "packagingOptions": {
               "pickFirst": [
                 "**/libc++_shared.so"
