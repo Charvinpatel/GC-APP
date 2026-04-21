@@ -29,6 +29,10 @@ import BillsScreen      from '../screens/BillsScreen';
 import ProfileScreen      from '../screens/ProfileScreen';
 import MyTripsScreen     from '../screens/MyTripsScreen';
 import TripHistoryScreen from '../screens/TripHistoryScreen';
+import MaintenanceScreen from '../screens/MaintenanceScreen';
+import OtherDebitScreen from '../screens/OtherDebitScreen';
+import ExcavatorFillsScreen from '../screens/ExcavatorFillsScreen';
+import NightTripsScreen from '../screens/NightTripsScreen';
 
 const Stack  = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -177,6 +181,10 @@ function CustomDrawerContent(props) {
     
     { type: 'header', label: 'FINANCIALS & ADMIN', adminOnly: true },
     { label: 'Invoices (Bills)', icon: 'receipt-outline',         screen: 'Bills',         adminOnly: true, count: counts.unpaidBills },
+    { label: 'Night Trips',    icon: 'moon-outline',            screen: 'NightTrips',    adminOnly: true },
+    { label: 'Maintenance',   icon: 'construct-outline',       screen: 'Maintenance',   adminOnly: true },
+    { label: 'Other Debits',  icon: 'card-outline',            screen: 'OtherDebits',   adminOnly: true },
+    { label: 'Excavator Fills', icon: 'stats-chart-outline',    screen: 'ExcavatorFills', adminOnly: true },
     { label: 'Reports',       icon: 'document-text-outline',   screen: 'Reports',       adminOnly: true },
   ];
 
@@ -312,6 +320,10 @@ function AppDrawer() {
       <Drawer.Screen name="Locations"     component={LocationsScreenWithHeader} />
       <Drawer.Screen name="Bills"         component={BillsScreenWithHeader} />
       <Drawer.Screen name="Reports"       component={ReportsScreenWithHeader} />
+      <Drawer.Screen name="Maintenance"   component={MaintenanceScreenWithHeader} />
+      <Drawer.Screen name="OtherDebits"   component={OtherDebitScreenWithHeader} />
+      <Drawer.Screen name="ExcavatorFills" component={ExcavatorFillsScreenWithHeader} />
+      <Drawer.Screen name="NightTrips"    component={NightTripsScreenWithHeader} />
 
     </Drawer.Navigator>
   );
@@ -350,6 +362,10 @@ const BillsScreenWithHeader      = makeHeaderScreen(BillsScreen,      'Bills');
 const ReportsScreenWithHeader    = makeHeaderScreen(ReportsScreen,    'Reports');
 const MyTripsScreenWithHeader    = makeHeaderScreen(MyTripsScreen,    'Today Trips');
 const TripHistoryScreenWithHeader= makeHeaderScreen(TripHistoryScreen,'Trip History');
+const MaintenanceScreenWithHeader     = makeHeaderScreen(MaintenanceScreen,     'Maintenance');
+const OtherDebitScreenWithHeader      = makeHeaderScreen(OtherDebitScreen,      'Other Debits');
+const ExcavatorFillsScreenWithHeader  = makeHeaderScreen(ExcavatorFillsScreen,  'Excavator Fills');
+const NightTripsScreenWithHeader      = makeHeaderScreen(NightTripsScreen,      'Night Trips');
 
 // ── Root Navigator ─────────────────────────────────────────────────────────────
 export default function AppNavigator() {

@@ -112,7 +112,7 @@ export default function UpadScreen() {
       {/* Total Banner */}
       <View style={styles.totalBanner}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.totalLabel}>Total Outstanding Advance</Text>
+          <Text style={styles.totalLabel}>Total Outstanding</Text>
           <Text style={styles.totalVal}>{formatCurrency(totalAdvance)}</Text>
         </View>
         <View style={{ width: 140 }}>
@@ -183,8 +183,7 @@ export default function UpadScreen() {
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.entryDriver}>{dName}</Text>
-                  <Text style={styles.entryDate}>{formatDateShort(u.date)}</Text>
+                  <Text style={styles.entryDriver}>{dName} <Text style={styles.entryDate}>· {formatDateShort(u.date)}</Text></Text>
                 </View>
                 <Text style={[styles.entryAmount, { color: isCredit ? colors.green : colors.brand[400] }]}>
                   {isCredit ? '-' : '+'}{formatCurrency(Math.abs(u.amount))}

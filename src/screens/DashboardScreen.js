@@ -176,8 +176,8 @@ function DriverDashboard({ user }) {
 // ── ADMIN DASHBOARD ─────────────────────────────
 function AdminDashboard({ user, navigation }) {
   const {
-    diesel, drivers, vehicles, soilTypes, driverTrips, locations,
-    fetchDiesel, fetchDrivers, fetchVehicles, fetchDriverTrips, fetchLocations, fetchSoilTypes
+    diesel, drivers, vehicles, soilTypes, driverTrips, locations, maintenance, otherDebits,
+    fetchDiesel, fetchDrivers, fetchVehicles, fetchDriverTrips, fetchLocations, fetchSoilTypes, fetchMaintenance, fetchOtherDebits
   } = useStore();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -222,6 +222,8 @@ function AdminDashboard({ user, navigation }) {
         fetchLocations({ limit: 500 }),
         fetchSoilTypes(),
         fetchDriverTrips({ limit: 1000 }),
+        fetchMaintenance({ limit: 1000 }),
+        fetchOtherDebits({ limit: 1000 }),
       ]);
     } catch {}
   };
@@ -255,28 +257,50 @@ function AdminDashboard({ user, navigation }) {
     }, { revenue: 0, profit: 0, count: 0 });
   };
 
+  const calcStats = (trips, dieselList, maintList, otherList) => {
+    const metrics = getMetrics(trips);
+    const dieselAmt      = dieselList.reduce((s, x) => s + (x.amount || 0), 0);
+    const maintenanceAmt = maintList.reduce((s, x) => s + (x.amount || 0), 0);
+    const otherDebitsAmt = otherList.reduce((s, x) => s + (x.amount || 0), 0);
+    // Net profit = revenue minus buy-price cost minus all operating expenses
+    const netProfit = metrics.revenue - (metrics.revenue - metrics.profit) - dieselAmt - maintenanceAmt - otherDebitsAmt;
+    return {
+      ...metrics,
+      diesel:      dieselAmt,
+      maintenance: maintenanceAmt,
+      otherDebits: otherDebitsAmt,
+      netProfit,
+    };
+  };
+
   const todayStats = useMemo(() => {
-    const t = driverTrips.filter(x  => x.date === today);
-    const d = diesel.filter(x => x.date === today);
-    const metrics = getMetrics(t);
-    return { ...metrics, diesel: d.reduce((s, x) => s + (x.amount || 0), 0) };
-  }, [driverTrips, diesel, today, locations]);
+    return calcStats(
+      driverTrips.filter(x => x.date === today),
+      diesel.filter(x => x.date === today),
+      maintenance.filter(x => x.date === today),
+      otherDebits.filter(x => x.date === today),
+    );
+  }, [driverTrips, diesel, maintenance, otherDebits, today, locations]);
 
   const monthlyStats = useMemo(() => {
     const month = dayjs(selectedDate).format('YYYY-MM');
-    const t = driverTrips.filter(x  => x.date && x.date.startsWith(month));
-    const d = diesel.filter(x => x.date && x.date.startsWith(month));
-    const metrics = getMetrics(t);
-    return { ...metrics, diesel: d.reduce((s, x) => s + (x.amount || 0), 0) };
-  }, [driverTrips, diesel, selectedDate, locations]);
+    return calcStats(
+      driverTrips.filter(x => x.date && x.date.startsWith(month)),
+      diesel.filter(x => x.date && x.date.startsWith(month)),
+      maintenance.filter(x => x.date && x.date.startsWith(month)),
+      otherDebits.filter(x => x.date && x.date.startsWith(month)),
+    );
+  }, [driverTrips, diesel, maintenance, otherDebits, selectedDate, locations]);
 
   const yearlyStats = useMemo(() => {
     const year = dayjs(selectedDate).format('YYYY');
-    const t = driverTrips.filter(x  => x.date && x.date.startsWith(year));
-    const d = diesel.filter(x => x.date && x.date.startsWith(year));
-    const metrics = getMetrics(t);
-    return { ...metrics, diesel: d.reduce((s, x) => s + (x.amount || 0), 0) };
-  }, [driverTrips, diesel, selectedDate, locations]);
+    return calcStats(
+      driverTrips.filter(x => x.date && x.date.startsWith(year)),
+      diesel.filter(x => x.date && x.date.startsWith(year)),
+      maintenance.filter(x => x.date && x.date.startsWith(year)),
+      otherDebits.filter(x => x.date && x.date.startsWith(year)),
+    );
+  }, [driverTrips, diesel, maintenance, otherDebits, selectedDate, locations]);
 
   const displayStats = perfView === 'day' ? todayStats : perfView === 'month' ? monthlyStats : yearlyStats;
 
@@ -394,14 +418,47 @@ function AdminDashboard({ user, navigation }) {
 
       <SectionHeader title="FLEET PERFORMANCE" />
 
+      {/* Row 1: Revenue + Trips */}
       <View style={styles.statsRow}>
-        <StatCard label={`${perfView.toUpperCase()} PROFIT`} value={formatCurrency(displayStats.profit)} icon="cash-outline" color={colors.green} />
+        <StatCard label="REVENUE" value={formatCurrency(displayStats.revenue)} icon="trending-up-outline" color={colors.brand[400]} />
         <StatCard label="ROUND TRIPS" value={String(displayStats.count)} icon="car-sport-outline" color={colors.blue} />
       </View>
+
+      {/* Row 2: Diesel + Maintenance (expenses) */}
       <View style={[styles.statsRow, { marginTop: spacing.md }]}>
-        <StatCard label={`${perfView === 'day' ? 'REVENUE' : perfView === 'month' ? 'MTD REVENUE' : 'YTD REVENUE'}`} value={formatCurrency(displayStats.revenue)} icon="trending-up" color={colors.brand[400]} />
-        <StatCard label="DIESEL COST" value={formatCurrency(displayStats.diesel)} icon="flame" color={colors.yellow} />
+        <StatCard 
+          label="DIESEL" 
+          value={formatCurrency(displayStats.diesel)} 
+          icon="flame-outline" 
+          color={colors.yellow}
+          onPress={() => navigation.navigate('Home', { screen: 'Diesel' })}
+        />
+        <StatCard 
+          label="MAINTENANCE" 
+          value={formatCurrency(displayStats.maintenance)} 
+          icon="construct-outline" 
+          color={'#f97316'}
+          onPress={() => navigation.navigate('Maintenance')}
+        />
       </View>
+
+      {/* Row 3: Other Debit + Net Profit */}
+      <View style={[styles.statsRow, { marginTop: spacing.md }]}>
+        <StatCard 
+          label="OTHER DEBIT" 
+          value={formatCurrency(displayStats.otherDebits)} 
+          icon="card-outline" 
+          color={colors.red} 
+          onPress={() => navigation.navigate('OtherDebits')}
+        />
+        <StatCard 
+          label="NET PROFIT" 
+          value={formatCurrency(displayStats.netProfit)} 
+          icon="cash-outline" 
+          color={displayStats.netProfit >= 0 ? colors.green : colors.red}
+        />
+      </View>
+
 
       <View style={{ height: spacing.xl }} />
 

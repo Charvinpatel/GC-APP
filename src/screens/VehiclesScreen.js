@@ -11,6 +11,7 @@ const TYPE_OPTS = [
   { label: 'Truck', value: 'truck' },
   { label: 'Tipper', value: 'tipper' },
   { label: 'JCB', value: 'jcb' },
+  { label: 'Excavator', value: 'excavator' },
   { label: 'Other', value: 'other' },
 ];
 const STATUS_OPTS = [
@@ -118,11 +119,22 @@ export default function VehiclesScreen() {
         <Ionicons name="add" size={28} color={colors.white} />
       </TouchableOpacity>
       <BottomModal visible={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Vehicle' : 'Add Vehicle'}>
-        <Input label="Vehicle Number *" icon="car-outline" value={form.number} onChangeText={v => setForm(f => ({ ...f, number: v }))} placeholder="GJ-XX-XXXX" autoCapitalize="characters" />
+        <Input 
+          label={form.type === 'excavator' ? "Vehicle Name *" : "Vehicle Number *"} 
+          icon="car-outline" 
+          value={form.number} 
+          onChangeText={v => setForm(f => ({ ...f, number: v }))} 
+          placeholder={form.type === 'excavator' ? "Enter Name" : "GJ-XX-XXXX"} 
+          autoCapitalize="characters" 
+        />
         <SelectPicker label="Type" value={form.type} options={TYPE_OPTS} onChange={v => setForm(f => ({ ...f, type: v }))} />
         <SelectPicker label="Status" value={form.status} options={STATUS_OPTS} onChange={v => setForm(f => ({ ...f, status: v }))} />
-        <Input label="Owner" icon="person-outline" value={form.owner} onChangeText={v => setForm(f => ({ ...f, owner: v }))} placeholder="Owner name" />
-        <Input label="Notes" value={form.notes} onChangeText={v => setForm(f => ({ ...f, notes: v }))} placeholder="Optional..." multiline />
+        {form.type !== 'excavator' && (
+          <>
+            <Input label="Owner" icon="person-outline" value={form.owner} onChangeText={v => setForm(f => ({ ...f, owner: v }))} placeholder="Owner name" />
+            <Input label="Notes" value={form.notes} onChangeText={v => setForm(f => ({ ...f, notes: v }))} placeholder="Optional..." multiline />
+          </>
+        )}
         <Button title={editing ? 'Update Vehicle' : 'Add Vehicle'} onPress={save} loading={saving} icon="checkmark-circle-outline" />
       </BottomModal>
     </View>

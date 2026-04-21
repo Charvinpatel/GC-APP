@@ -19,7 +19,7 @@ const { width } = Dimensions.get('window');
 
 const EMPTY_FORM = {
   date: new Date(),
-  driverId: '', vehicleId: '', soilTypeId: '',
+  driverId: '', vehicleId: '', soilTypeId: '', excavatorId: '',
   source: '', destination: '',
   trips: '1', notes: '',
 };
@@ -205,6 +205,7 @@ export default function VerifyTripsScreen() {
       trips:       String(trip.trips || 1),
       notes:       trip.notes || '',
       date:        trip.date ? new Date(trip.date) : new Date(),
+      excavatorId: trip.excavatorId || trip.excavator?._id || '',
     });
     setShowEditModal(true);
   };
@@ -257,6 +258,7 @@ export default function VerifyTripsScreen() {
 
   const driverOpts  = drivers.map(d   => ({ label: d.name,   value: d.id }));
   const vehicleOpts = vehicles.map(v  => ({ label: v.number, value: v.id }));
+  const excavatorOpts = vehicles.filter(v => v.type === 'excavator').map(v => ({ label: v.number, value: v.id }));
   const soilOpts    = soilTypes.map(s => ({ label: s.name,   value: s.id }));
   const sourceOpts  = locations.map(l => {
     const cleanName = (l.name || '').split('|PRICE:')[0].trim();
@@ -459,8 +461,9 @@ export default function VerifyTripsScreen() {
           
           <View style={{ flexDirection: 'row', gap: spacing.md }}>
             <View style={{ flex: 1 }}><SelectPicker label="Vehicle" value={form.vehicleId} options={vehicleOpts} onChange={v => setForm(f => ({ ...f, vehicleId: v }))} /></View>
-            <View style={{ flex: 1 }}><SelectPicker label="Material" value={form.soilTypeId} options={soilOpts} onChange={v => setForm(f => ({ ...f, soilTypeId: v }))} /></View>
+            <View style={{ flex: 1 }}><SelectPicker label="Excavator" value={form.excavatorId} options={[{label:'None',value:''}, ...excavatorOpts]} onChange={v => setForm(f => ({ ...f, excavatorId: v }))} /></View>
           </View>
+          <View style={{ flex: 1 }}><SelectPicker label="Material" value={form.soilTypeId} options={soilOpts} onChange={v => setForm(f => ({ ...f, soilTypeId: v }))} /></View>
 
           <DatePicker label="Work Date" date={form.date} onConfirm={d => setForm(f => ({ ...f, date: d }))} />
           
@@ -542,6 +545,9 @@ export default function VerifyTripsScreen() {
           <View style={{ flexDirection: 'row', gap: spacing.md }}>
             <View style={{ flex: 1 }}>
               <SelectPicker label="Vehicle" value={editForm.vehicleId} options={vehicleOpts} onChange={v => setEditForm(f => ({ ...f, vehicleId: v }))} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <SelectPicker label="Excavator" value={editForm.excavatorId} options={[{label:'None',value:''}, ...excavatorOpts]} onChange={v => setEditForm(f => ({ ...f, excavatorId: v }))} />
             </View>
             <View style={{ flex: 1 }}>
               <SelectPicker label="Material" value={editForm.soilTypeId} options={soilOpts} onChange={v => setEditForm(f => ({ ...f, soilTypeId: v }))} />

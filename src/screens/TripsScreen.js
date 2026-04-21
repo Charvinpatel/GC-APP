@@ -10,7 +10,7 @@ import { colors, spacing, radius, shadows } from '../utils/theme';
 import { formatCurrency, formatDateShort, getTripProfit, getTripRevenue } from '../utils/helpers';
 const EMPTY_MULTI_TRIP = {
   date: dayjs().format('YYYY-MM-DD'),
-  driverId: '', vehicleId: '',
+  driverId: '', vehicleId: '', excavatorId: '',
   routes: [{ id: '1', soilTypeId: '', source: '', destination: '', trips: '1', buyPrice: '', sellPrice: '', notes: '' }],
 };
 export default function TripsScreen() {
@@ -88,6 +88,7 @@ export default function TripsScreen() {
       date:       group.date || dayjs().format('YYYY-MM-DD'),
       driverId:   firstTrip.driverId || '',
       vehicleId:  firstTrip.vehicleId || '',
+      excavatorId: firstTrip.excavatorId || firstTrip.excavator?._id || '',
       routes:     group.summaries.map((s, idx) => ({
         id:          `sum_${idx}`, 
         originalIds: s.ids, 
@@ -199,6 +200,7 @@ export default function TripsScreen() {
           date: form.date, 
           driverId: form.driverId, 
           vehicleId: form.vehicleId,
+          excavatorId: form.excavatorId,
           source: r.source, 
           destination: r.destination, 
           soilTypeId: r.soilTypeId,
@@ -232,6 +234,7 @@ export default function TripsScreen() {
   };
   const driverOpts  = drivers.map(d   => ({ label: d.name,   value: d.id }));
   const vehicleOpts = vehicles.map(v  => ({ label: v.number, value: v.id }));
+  const excavatorOpts = vehicles.filter(v => v.type === 'excavator').map(v => ({ label: v.number, value: v.id }));
   const soilOpts    = soilTypes.map(s => ({ label: s.name,   value: s.id }));
   const sourceOpts  = locations.map(l => {
     const cleanName = (l.name || '').split('|PRICE:')[0].trim();
@@ -485,9 +488,14 @@ export default function TripsScreen() {
              </View>
            </View>
            
-           <View style={{ marginBottom: spacing.md }}>
-             <DatePicker label="Date *" date={form.date} onConfirm={(d) => setForm(f => ({ ...f, date: dayjs(d).format('YYYY-MM-DD') }))} />
-             {errors.date && <Text style={styles.errorText}>{errors.date}</Text>}
+           <View style={{ flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md }}>
+             <View style={{ flex: 1 }}>
+               <SelectPicker label="Excavator (Filler)" value={form.excavatorId} options={[{label:'None',value:''}, ...excavatorOpts]} onChange={v => setForm(f => ({ ...f, excavatorId: v }))} placeholder="Select excavator" />
+             </View>
+             <View style={{ flex: 1 }}>
+               <DatePicker label="Date *" date={form.date} onConfirm={(d) => setForm(f => ({ ...f, date: dayjs(d).format('YYYY-MM-DD') }))} />
+               {errors.date && <Text style={styles.errorText}>{errors.date}</Text>}
+             </View>
            </View>
            <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.surface[800], paddingTop: spacing.md }}>
              <Text style={styles.sectionTitle}>ROUTE ENTRIES</Text>

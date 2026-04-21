@@ -113,6 +113,30 @@ export const diesel = {
   remove:  (id)           => del(`/diesel/${id}`),
 };
 
+// ── Maintenance ───────────────────────────────────────────────────────────────
+export const maintenance = {
+  getAll:  (filters = {}) => get('/maintenance?' + new URLSearchParams(filters)),
+  create:  (data)         => post('/maintenance', data),
+  update:  (id, data)     => put(`/maintenance/${id}`, data),
+  remove:  (id)          => del(`/maintenance/${id}`),
+};
+
+// ── Other Debits ──────────────────────────────────────────────────────────────
+export const otherDebits = {
+  getAll:  (filters = {}) => get('/other-debits?' + new URLSearchParams(filters)),
+  create:  (data)         => post('/other-debits', data),
+  update:  (id, data)     => put(`/other-debits/${id}`, data),
+  remove:  (id)          => del(`/other-debits/${id}`),
+};
+
+// ── Excavator Fills ──────────────────────────────────────────────────────────
+export const excavatorFills = {
+  getAll:  (filters = {}) => get('/excavator-fills?' + new URLSearchParams(filters)),
+  create:  (data)         => post('/excavator-fills', data),
+  update:  (id, data)     => put(`/excavator-fills/${id}`, data),
+  remove:  (id)          => del(`/excavator-fills/${id}`),
+};
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 export const dashboard = {
   get: () => get('/dashboard'),
@@ -173,5 +197,5 @@ export const vendors = {
   remove: (id) => del(`/vendors/${id}`),
 };
 
-const api = { auth, drivers, vehicles, soilTypes, trips, diesel, dashboard, finance, reports, driverTrips, upad, locations, bills, vendors };
+const api = { auth, drivers, vehicles, soilTypes, trips, diesel, maintenance, otherDebits, excavatorFills, dashboard, finance, reports, driverTrips, upad, locations, bills, vendors };
 export default api;

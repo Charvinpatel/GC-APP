@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import api, { setToken, clearToken, getToken } from '../utils/api';
 import { mapId, mapTrip, mapDiesel, mapVehicle, mapDriverTrip, mapUpad, mapLocation } from '../utils/helpers';
+import localDb, { excavatorIds as excavatorIdStore } from '../utils/localDb';
 
 export const useStore = create((set, get) => ({
   // ── Auth State ──────────────────────────────────────────────────────────────
@@ -23,6 +24,11 @@ export const useStore = create((set, get) => ({
   driverDashboardTrips: [],
   upad:        [],
   locations:   [],
+  maintenance: [],
+  otherDebits: [],
+  excavatorFills: [],
+  nightTrips: [],
+  nightTripsMeta: { total: 0, page: 1, totalPages: 1 },
 
   // ── Pagination Metadata ─────────────────────────────────────────────────────
   tripsMeta:    { total: 0, page: 1, totalPages: 1 },
@@ -30,6 +36,9 @@ export const useStore = create((set, get) => ({
   vehiclesMeta: { total: 0, page: 1, totalPages: 1 },
   dieselMeta:   { total: 0, page: 1, totalPages: 1 },
   locationsMeta:{ total: 0, page: 1, totalPages: 1 },
+  maintenanceMeta: { total: 0, page: 1, totalPages: 1 },
+  otherDebitsMeta: { total: 0, page: 1, totalPages: 1 },
+  excavatorFillsMeta: { total: 0, page: 1, totalPages: 1 },
   tripsSummary: { revenue: 0, profit: 0, trips: 0 },
   refreshTrigger: 0,
 
@@ -139,21 +148,47 @@ export const useStore = create((set, get) => ({
     set({ contentLoading: true });
     try {
       const res = await api.vehicles.getAll(params);
-      set({ vehicles: res.data.map(mapVehicle), vehiclesMeta: { total: res.total, page: res.page, totalPages: res.totalPages }, contentLoading: false });
+      // Restore excavator type for locally-tagged vehicles
+      const excIds = await excavatorIdStore.getAll();
+      const mapped = res.data.map(v => {
+        const vid = v._id || v.id;
+        if (excIds.includes(vid)) v = { ...v, type: 'excavator' };
+        return mapVehicle(v);
+      });
+      set({ vehicles: mapped, vehiclesMeta: { total: res.total, page: res.page, totalPages: res.totalPages }, contentLoading: false });
     } catch (e) { set({ contentLoading: false }); throw e; }
   },
   addVehicle: async (v) => {
-    const res = await api.vehicles.create(v);
+    // Backend enum only accepts truck/tipper/jcb/other — map excavator → other
+    const isExcavator = v.type === 'excavator';
+    const payload = isExcavator ? { ...v, type: 'other' } : v;
+    const res = await api.vehicles.create(payload);
+    const vid = res._id || res.id;
+    if (isExcavator) {
+      await excavatorIdStore.add(vid);
+      res.type = 'excavator';
+    }
     set(s => ({ vehicles: [mapVehicle(res), ...s.vehicles] }));
     return res;
   },
   updateVehicle: async (id, data) => {
-    const res = await api.vehicles.update(id, data);
+    const isExcavator = data.type === 'excavator';
+    const payload = isExcavator ? { ...data, type: 'other' } : data;
+    const res = await api.vehicles.update(id, payload);
+    const vid = res._id || res.id;
+    if (isExcavator) {
+      await excavatorIdStore.add(vid);
+      res.type = 'excavator';
+    } else {
+      // If switched away from excavator, remove the tag
+      await excavatorIdStore.remove(vid);
+    }
     set(s => ({ vehicles: s.vehicles.map(v => v.id === id ? mapVehicle(res) : v) }));
     return res;
   },
   deleteVehicle: async (id) => {
     await api.vehicles.remove(id);
+    await excavatorIdStore.remove(id);
     set(s => ({ vehicles: s.vehicles.filter(v => v.id !== id) }));
   },
 
@@ -337,5 +372,141 @@ export const useStore = create((set, get) => ({
     const res = await api.locations.update(id, data);
     set(s => ({ locations: s.locations.map(l => l.id === id ? mapLocation(res) : l) }));
     return res;
+  },
+
+  // ── Maintenance (local storage — backend route not available) ────────────────
+  fetchMaintenance: async (params) => {
+    set({ contentLoading: true });
+    try {
+      const res = await localDb.maintenance.getAll(params);
+      set({ 
+        maintenance: res.data.map(mapId), 
+        maintenanceMeta: { total: res.total, page: res.page, totalPages: res.totalPages },
+        contentLoading: false 
+      });
+    } catch (e) { set({ contentLoading: false }); throw e; }
+  },
+  addMaintenance: async (data) => {
+    // Enrich with vehicle number for display without populated join
+    const vehicle = get().vehicles.find(v => v.id === data.vehicleId);
+    const payload = { ...data, vehicleNumber: vehicle?.number || '' };
+    const res = await localDb.maintenance.create(payload);
+    set(s => ({ maintenance: [mapId(res), ...s.maintenance] }));
+    return res;
+  },
+  updateMaintenance: async (id, data) => {
+    const vehicle = get().vehicles.find(v => v.id === data.vehicleId);
+    const payload = { ...data, vehicleNumber: vehicle?.number || '' };
+    const res = await localDb.maintenance.update(id, payload);
+    set(s => ({ maintenance: s.maintenance.map(m => m.id === id ? mapId(res) : m) }));
+    return res;
+  },
+  deleteMaintenance: async (id) => {
+    await localDb.maintenance.remove(id);
+    set(s => ({ maintenance: s.maintenance.filter(m => m.id !== id) }));
+  },
+
+  // ── Other Debits (local storage — backend route not available) ───────────────
+  fetchOtherDebits: async (params) => {
+    set({ contentLoading: true });
+    try {
+      const res = await localDb.otherDebits.getAll(params);
+      set({ 
+        otherDebits: res.data.map(mapId), 
+        otherDebitsMeta: { total: res.total, page: res.page, totalPages: res.totalPages },
+        contentLoading: false 
+      });
+    } catch (e) { set({ contentLoading: false }); throw e; }
+  },
+  addOtherDebits: async (data) => {
+    const res = await localDb.otherDebits.create(data);
+    set(s => ({ otherDebits: [mapId(res), ...s.otherDebits] }));
+    return res;
+  },
+  updateOtherDebits: async (id, data) => {
+    const res = await localDb.otherDebits.update(id, data);
+    set(s => ({ otherDebits: s.otherDebits.map(d => d.id === id ? mapId(res) : d) }));
+    return res;
+  },
+  deleteOtherDebits: async (id) => {
+    await localDb.otherDebits.remove(id);
+    set(s => ({ otherDebits: s.otherDebits.filter(d => d.id !== id) }));
+  },
+
+  // ── Excavator Fills (local storage — backend route not available) ────────────
+  fetchExcavatorFills: async (params) => {
+    set({ contentLoading: true });
+    try {
+      const res = await localDb.excavatorFills.getAll(params);
+      set({ 
+        excavatorFills: res.data.map(mapId), 
+        excavatorFillsMeta: { total: res.total, page: res.page, totalPages: res.totalPages },
+        contentLoading: false 
+      });
+    } catch (e) { set({ contentLoading: false }); throw e; }
+  },
+  addExcavatorFill: async (data) => {
+    const res = await localDb.excavatorFills.create(data);
+    set(s => ({ excavatorFills: [mapId(res), ...s.excavatorFills] }));
+    return res;
+  },
+  updateExcavatorFill: async (id, data) => {
+    const res = await localDb.excavatorFills.update(id, data);
+    set(s => ({ excavatorFills: s.excavatorFills.map(f => f.id === id ? mapId(res) : f) }));
+    return res;
+  },
+  deleteExcavatorFill: async (id) => {
+    await localDb.excavatorFills.remove(id);
+    set(s => ({ excavatorFills: s.excavatorFills.filter(f => f.id !== id) }));
+  },
+
+  // ── Night Trips (local storage — manual admin entries) ────────────────────────
+  fetchNightTrips: async (params) => {
+    try {
+      const res = await localDb.nightTrips.getAll(params);
+      set({ 
+        nightTrips: res.data.map(mapId), 
+        nightTripsMeta: { total: res.total, page: res.page, totalPages: res.totalPages },
+      });
+    } catch (e) { console.error('fetchNightTrips:', e); }
+  },
+  addNightTrip: async (data) => {
+    // Enrich with name labels for display
+    const { drivers, vehicles, soilTypes } = get();
+    const driver  = drivers.find(d => d.id === data.driverId);
+    const vehicle = vehicles.find(v => v.id === data.vehicleId);
+    const soil    = soilTypes.find(s => s.id === data.soilTypeId);
+    const payload = {
+      ...data,
+      driverName:  driver?.name  || data.driverName  || '',
+      vehicleNumber: vehicle?.number || data.vehicleNumber || '',
+      soilTypeName:  soil?.name    || data.soilTypeName    || '',
+      status: 'night',
+      isNightTrip: true,
+    };
+    const res = await localDb.nightTrips.create(payload);
+    set(s => ({ nightTrips: [mapId(res), ...s.nightTrips] }));
+    return res;
+  },
+  updateNightTrip: async (id, data) => {
+    const { drivers, vehicles, soilTypes } = get();
+    const driver  = drivers.find(d => d.id === data.driverId);
+    const vehicle = vehicles.find(v => v.id === data.vehicleId);
+    const soil    = soilTypes.find(s => s.id === data.soilTypeId);
+    const payload = {
+      ...data,
+      driverName:    driver?.name    || data.driverName    || '',
+      vehicleNumber: vehicle?.number || data.vehicleNumber || '',
+      soilTypeName:  soil?.name      || data.soilTypeName  || '',
+      status: 'night',
+      isNightTrip: true,
+    };
+    const res = await localDb.nightTrips.update(id, payload);
+    set(s => ({ nightTrips: s.nightTrips.map(t => t.id === id ? mapId(res) : t) }));
+    return res;
+  },
+  deleteNightTrip: async (id) => {
+    await localDb.nightTrips.remove(id);
+    set(s => ({ nightTrips: s.nightTrips.filter(t => t.id !== id) }));
   },
 }));
