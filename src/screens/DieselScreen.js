@@ -42,10 +42,17 @@ export default function DieselScreen() {
   const [filterDate, setFilterDate] = useState(null);
   const [activePreset, setActivePreset] = useState('All');
   const [showFilterPicker, setShowFilterPicker] = useState(false);
+  const [vehicleFilter, setVehicleFilter] = useState('');
 
-  const load = async (d) => {
+  const load = async (d, v) => {
     try {
-      const filters = d === null ? { limit: 1000 } : { date: d || filterDate, limit: 1000 };
+      const date = d !== undefined ? d : filterDate;
+      const vehicle = v !== undefined ? v : vehicleFilter;
+      
+      const filters = { limit: 1000 };
+      if (date) filters.date = date;
+      if (vehicle) filters.vehicle = vehicle;
+
       await fetchDiesel(filters);
       if (drivers.length === 0) fetchDrivers({ limit: 100 });
       if (vehicles.length === 0) fetchVehicles({ limit: 100 });
@@ -59,7 +66,7 @@ export default function DieselScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await load(activePreset === 'All' ? null : filterDate);
+    await load();
     setRefreshing(false);
   };
 
@@ -71,6 +78,12 @@ export default function DieselScreen() {
     setFilterDate(date);
     setActivePreset(preset);
     await load(date);
+  };
+
+  const handleVehicleFilter = (vId) => {
+    setLoading(true);
+    setVehicleFilter(vId);
+    load(filterDate, vId);
   };
 
   const openAdd = () => { setEditing(null); setForm(EMPTY); setShowModal(true); };
@@ -101,7 +114,7 @@ export default function DieselScreen() {
       if (editing) await updateDiesel(editing.id, payload);
       else await addDiesel(payload);
       setShowModal(false);
-      load(activePreset === 'All' ? null : filterDate);
+      load();
     } catch (e) { 
       Alert.alert('Error', e.message); 
     } finally { 
@@ -270,6 +283,17 @@ export default function DieselScreen() {
               <Text style={styles.dateDisplayText}>{filterDate ? dayjs(filterDate).format('DD MMM') : 'All Time'}</Text>
            </View>
         </View>
+
+        {/* Vehicle Filter */}
+        <View style={styles.vehicleFilterRow}>
+          <SelectPicker 
+            label="Vehicle Filter" 
+            value={vehicleFilter} 
+            options={[{ label: 'ALL VEHICLES', value: '' }, ...vehicleOpts]} 
+            onChange={handleVehicleFilter} 
+            placeholder="Filter by Truck..." 
+          />
+        </View>
         {/* Total Summary Row */}
         <View style={styles.totalBox}>
            <View style={{ flex: 1 }}>
@@ -364,6 +388,8 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 24, fontWeight: '900', color: colors.white, letterSpacing: -1 },
   headerSub: { fontSize: 10, fontWeight: '800', color: colors.brand[400], letterSpacing: 1.5 },
   
+  vehicleFilterRow: { paddingHorizontal: spacing.xl, marginBottom: spacing.md },
+
   downloadBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: colors.surface[900], alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.surface[800] },
   presets: { flexDirection: 'row', paddingHorizontal: spacing.xl, gap: 10, alignItems: 'center', marginBottom: spacing.xl },
   presetBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.full, backgroundColor: colors.surface[900], borderWidth: 1, borderColor: colors.surface[800] },
